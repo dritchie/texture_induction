@@ -221,7 +221,7 @@ Mat = S.memoize(function(real, rowdim, coldim)
 			if vout(3) == 0.0 then
 				vret:init(0.0, 0.0, 0.0)
 			else
-				vret:init(vout(0), vout(1), vout(2)) / vout(3)
+				vret:init(vout(0)/vout(3), vout(1)/vout(3), vout(2)/vout(3))
 			end
 			return vret
 		end
@@ -381,3 +381,9 @@ Mat = S.memoize(function(real, rowdim, coldim)
 	m.addConstructors(MatT)
 	return MatT
 end)
+
+
+return Mat
+
+
+

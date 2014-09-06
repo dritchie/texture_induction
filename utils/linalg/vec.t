@@ -59,12 +59,6 @@ Vec = S.memoize(function(real, dim)
 		for i=1,dim do table.insert(t, symbol(real)) end
 		return t
 	end
-	local function copyWrap(exprs)
-		return wrap(exprs, function(e) return `m.copy(e) end)
-	end
-	local function destructWrap(exprs)
-		return wrap(exprs, function(e) return `m.destruct(e) end)
-	end
 
 	-- Constructors/destructors/etc.
 	terra VecT:__init()
@@ -72,18 +66,15 @@ Vec = S.memoize(function(real, dim)
 	end
 	local ctorags = symbolList()
 	terra VecT:__init([ctorags])
-		[entryList(self)] = [copyWrap(ctorags)]
+		[entryList(self)] = [ctorags]
 	end
 	if dim > 1 then
 		terra VecT:__init(val: real)
 			[entryList(self)] = [replicate(val, dim)]
 		end
 	end
-	terra VecT:__destruct()
-		[destructWrap(entryList(self))]
-	end
 	terra VecT:__copy(other: &VecT)
-		[entryList(self)] = [copyWrap(entryList(other))]
+		[entryList(self)] = [entryList(other)]
 	end
 
 	-- Apply metamethod does element access (as a macro, so you can both
@@ -262,7 +253,7 @@ Vec = S.memoize(function(real, dim)
 		n:normalize()
 		return tmath.fabs((@self - p):dot(n)) < planeThresh
 	end
-	util.inline(VecT.methods.inPlane)
+	VecT.methods.inPlane:setinlined(true)
 
 	terra VecT:projectToRay(p: VecT, d: VecT) : VecT
 		d:normalize()
@@ -297,7 +288,7 @@ Vec = S.memoize(function(real, dim)
 	if dim == 2 then
 		VecT.methods.fromPolar = terra(r: real, theta: real)
 			var v : VecT
-			v:init(r*tmath.cos(theta), r*tmath.sin(theta)))
+			v:init(r*tmath.cos(theta), r*tmath.sin(theta))
 			return v
 		end
 

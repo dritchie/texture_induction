@@ -200,7 +200,7 @@ local Image = S.memoize(function(dataType, numChannels)
 	end
 
 	-- Quantize/dequantize channel values
-	local makeQuantize = templatize(function(srcDataType, tgtDataType)
+	local makeQuantize = S.memoize(function(srcDataType, tgtDataType)
 		local function B2b(B)
 			return 8*B
 		end
@@ -221,7 +221,7 @@ local Image = S.memoize(function(dataType, numChannels)
 	end)
 
 	-- Helper for file load constructor
-	local loadImage = templatize(function(fileDataType)
+	local loadImage = S.memoize(function(fileDataType)
 		local b2B = macro(function(b)
 			return `b/8
 		end)
@@ -262,7 +262,8 @@ local Image = S.memoize(function(dataType, numChannels)
 	terra ImageT:__init(format: int, filename: rawstring) : {}
 		var fibitmap = FI.FreeImage_Load(format, filename, 0)
 		if fibitmap == nil then
-			util.fatalError("Could not load image file '%s'\n", filename)
+			S.printf("Could not load image file '%s'\n", filename)
+			S.assert(false)
 		end
 		var fit = FI.FreeImage_GetImageType(fibitmap)
 		var bpp = FI.FreeImage_GetBPP(fibitmap)
@@ -282,14 +283,15 @@ local Image = S.memoize(function(dataType, numChannels)
 		elseif fit == Type.DOUBLE then
 			[loadImage(double)](self, fibitmap)
 		else
-			util.fatalError("Attempt to load unsupported image type.\n")
+			S.printf("Attempt to load unsupported image type.\n")
+			S.assert(false)
 		end
 
 		FI.FreeImage_Unload(fibitmap)
 	end
 
 	-- Save an existing image
-	ImageT.save = templatize(function(fileDataType)
+	ImageT.save = S.memoize(function(fileDataType)
 		-- Default to internal dataType
 		fileDataType = fileDataType or dataType
 		local quantize = makeQuantize(dataType, fileDataType)
@@ -299,7 +301,8 @@ local Image = S.memoize(function(dataType, numChannels)
 		return terra(image: &ImageT, format: int, filename: rawstring)
 			var fibitmap = FI.FreeImage_AllocateT(fit, image.width, image.height, bpp, 0, 0, 0)
 			if fibitmap == nil then
-				util.fatalError("Unable to allocate FreeImage bitmap to save image.\n")
+				S.printf("Unable to allocate FreeImage bitmap to save image.\n")
+				S.assert(false)
 			end
 			for y=0,image.height do
 				var scanline = [&fileDataType](FI.FreeImage_GetScanLine(fibitmap, y))
@@ -313,15 +316,18 @@ local Image = S.memoize(function(dataType, numChannels)
 					--    a 24 or 32 bit image), then FreeImage flips R and B
 					--    for little endian machines (all x86 machines)
 					-- We need to flip it back
-					[util.optionally(isBGR, function() return quote
-						var tmp = fibitmapPixelPtr[0]
-						fibitmapPixelPtr[0] = fibitmapPixelPtr[2]
-						fibitmapPixelPtr[2] = tmp
-					end end)]
+					escape
+						if isBGR then emit quote
+							var tmp = fibitmapPixelPtr[0]
+							fibitmapPixelPtr[0] = fibitmapPixelPtr[2]
+							fibitmapPixelPtr[2] = tmp
+						end end
+					end
 				end
 			end
 			if FI.FreeImage_Save(format, fibitmap, filename, 0) == 0 then
-				util.fatalError("Failed to save image named '%s'\n", filename)
+				S.printf("Failed to save image named '%s'\n", filename)
+				S.assert(false)
 			end
 			FI.FreeImage_Unload(fibitmap)
 		end
@@ -332,7 +338,6 @@ local Image = S.memoize(function(dataType, numChannels)
 		[ImageT.save()](self, format, filename)
 	end
 
-	m.addConstructors(ImageT)
 	return ImageT
 end)
 
