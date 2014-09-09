@@ -98,13 +98,17 @@ local genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
 	local inputs = getInputEntries(nodeClass)
 	local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
 	local inputTemps = inputs:map(function(e) return symbol(e.type) end)
+	local inputTempsAssign = #inputTemps > 0 and
+		quote var [inputTemps] = [inputResults] end
+	or
+		quote end
 	function inputTempsXY(x,y)
 		return inputTemps:map(function(img) return `img(x,y) end)
 	end
 	local freeInputResults = inputTemps:map(function(img) return `self.imagePool:release(img) end)
 	return quote
 		var outimg = self.imagePool:fetch(xres, yres)
-		var [inputTemps] = [inputResults]
+		[inputTempsAssign]
 		var xrange = xhi - xlo
 		var yrange = yhi - ylo
 		var xdelta = xrange / xres
