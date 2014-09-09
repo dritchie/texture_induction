@@ -1,0 +1,93 @@
+local S = terralib.require("qs.lib.std")
+local Vec = terralib.require("utils.linalg.vec")
+local randTables = terralib.require("tex.randTables")
+local tmath = terralib.require("qs.lib.tmath")
+
+local GradientTable = randTables.GradientTable
+
+
+-- Much of this implementation of basic noise primitives is taken from
+--    libnoise (http://libnoise.sourceforge.net/index.html)
+
+
+-- Constants for index shuffling
+local X_NOISE_GEN = 1619
+local Y_NOISE_GEN = 31337
+local SHIFT_NOISE_GEN = 8
+
+
+
+-- Interpolation
+local lerp = macro(function(lo, hi, t)
+	return `(1.0-t)*lo + t*hi
+end)
+local ease = macro(function(t)
+	return `(t * t * (3.0 - 2.0 * t))
+end)
+
+
+
+-- Helper: Compute the gradient noise value an integer grid location,
+--    given the continuous location where noise will eventually be evaluated.
+local gradientNoise = S.memoize(function(real)
+	return terra(fx: real, fy: real, x: int, y: int, grads: &GradientTable(real))
+		-- Lookup into the gradient table using a random permutation of x,y
+		-- TODO: Try removing this and using the position to do direct lookup.
+		--    Might look bad, but it also could give us more control over
+		--    appearance when 'grads' is a random variable.
+		var index = (
+			X_NOISE_GEN * x +
+			Y_NOISE_GEN * y
+		) & 0xffffffff	-- Not sure why this is necessary...?
+		index = index ^ (index >> SHIFT_NOISE_GEN)
+		-- Ensure all indices are in range
+		-- TODO: Try 'mod' instead to see what it does?
+		index = index and grads:size()
+		var g = grads(index)
+
+		-- Take the dot product of this gradient with the vector between (fx,fy)
+		--    and (x,y)
+		-- Also rescale to be in the range (-1, 1)
+		var v = [Vec(real,2)].salloc():init(fx-x, fy-y)
+		return v:dot(g) * 2.12
+	end
+end)
+
+
+-- Compute coherent gradient noise at a point
+local gradientCoherentNoise = S.memoize(function(real)
+	return terra(x: real, y: real, grads: &GradientTable(real))
+		-- Bound the input point within an integer grid cell
+		-- TODO: Use a CUDA-aware floor function
+		var x0 = tmath.floor(x)
+		var x1 = x0 + 1
+		var y0 = tmath.floor(y)
+		var y1 = y0 + 1
+
+		-- Cubic interpolate the distance from the origin of the cell
+		--    to the input point
+		var xs = ease(x - x0)
+		var ys = ease(y - y0)
+
+		-- Calculate noise values at each grid vertex, then bilinear
+		--    interpolate to get final noise value
+		var n00 = gradientNoise(x, y, x0, y0, grads)
+		var n01 = gradientNoise(x, y, x0, y1, grads)
+		var n0 = lerp(n00, n01, ys)
+		var n10 = gradientNoise(x, y, x1, y0, grads)
+		var n11 = gradientNoise(x, y, x1, y1, grads)
+		var n1 = lerp(n10, n11, ys)
+		return lerp(n0, n1, xs)
+	end
+end)
+
+
+
+return
+{
+	gradientCoherent = gradientCoherentNoise
+}
+
+
+
+
