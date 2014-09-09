@@ -161,9 +161,18 @@ local Image = S.memoize(function(dataType, numChannels)
 		self.height = height
 		if width*height > 0 then
 			self.data = [&Color](S.malloc(width*height*sizeof(Color)))
+		end
+	end
+
+	terra ImageT:__init(width: uint, height: uint, fillval: Color) : {}
+		self:__init()
+		self.width = width
+		self.height = height
+		if width*height > 0 then
+			self.data = [&Color](S.malloc(width*height*sizeof(Color)))
 			for y=0,self.height do
 				for x=0,self.width do
-					self(x, y):init()
+					S.copy(self(x,y), fillval)
 				end
 			end
 		end
