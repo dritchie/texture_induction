@@ -33,6 +33,33 @@ local Node = S.memoize(function(real, nchannels)
 	-- Evaluate the texture function over an entire image
 	inherit.purevirtual(Node, "evalImage", {uint,uint,real,real,real,real}->&image.Image(real,nchannels))
 
+
+	-- Generate a texture image from the graph rooted at this node, evaluating the entire graph at
+	--    every pixel.
+	terra Node:genTexturePointwise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
+		var outimg = self.imagePool:fetch(xres, yres)
+		var xrange = xhi - xlo
+		var yrange = yhi - ylo
+		var xdelta = xrange / xres
+		var ydelta = yrange / yres
+		var xval = xmin
+		var yval = ymin
+		for y=0,yres do
+			for x=0,xres do
+				outimg(x,y) = self:evalPoint(xval, yval)
+				xval = xval + xdelta
+			end
+			yval = yval + ydelta
+		end
+		return outimg
+	end
+
+	-- Generate a texture image from the graph rooted at this node, evaluating an entire image for
+	--    each stage in the graph.
+	terra Node:genTextureBlocked(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
+		return self:evalImage(xres, yres, xlo, xhi, ylo, yhi)
+	end
+
 	return Node
 
 end)
