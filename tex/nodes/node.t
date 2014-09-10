@@ -134,6 +134,9 @@ end)
 --    pointwise implementation that we assume to exist.
 local function Metatype(nodeClass)
 
+	-- First, always apply S.Object
+	S.Object(nodeClass)
+
 	local real = nodeClass.RealType
 
 	terra nodeClass:evalPoint(x: real, y: real) : Node.OutputType

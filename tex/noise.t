@@ -14,7 +14,7 @@ local GradientTable = randTables.GradientTable
 local X_NOISE_GEN = 1619
 local Y_NOISE_GEN = 31337
 local SHIFT_NOISE_GEN = 8
-
+local SEED_NOISE_GEN = 1013
 
 
 -- Interpolation
@@ -30,14 +30,15 @@ end)
 -- Helper: Compute the gradient noise value an integer grid location,
 --    given the continuous location where noise will eventually be evaluated.
 local gradientNoise = S.memoize(function(real)
-	return terra(fx: real, fy: real, x: int, y: int, grads: &GradientTable(real))
+	return terra(fx: real, fy: real, x: int, y: int, seed: int, grads: &GradientTable(real))
 		-- Lookup into the gradient table using a random permutation of x,y
 		-- TODO: Try removing this and using the position to do direct lookup.
 		--    Might look bad, but it also could give us more control over
 		--    appearance when 'grads' is a random variable.
 		var index = (
 			X_NOISE_GEN * x +
-			Y_NOISE_GEN * y
+			Y_NOISE_GEN * y +
+			SEED_NOISE_GEN * seed
 		) & 0xffffffff	-- Not sure why this is necessary...?
 		index = index ^ (index >> SHIFT_NOISE_GEN)
 		-- Ensure all indices are in range
@@ -56,7 +57,7 @@ end)
 
 -- Compute coherent gradient noise at a point
 local gradientCoherentNoise = S.memoize(function(real)
-	return terra(x: real, y: real, grads: &GradientTable(real))
+	return terra(x: real, y: real, seed: int, grads: &GradientTable(real))
 		-- Bound the input point within an integer grid cell
 		-- TODO: Use a CUDA-aware floor function
 		var x0 = tmath.floor(x)
@@ -71,11 +72,11 @@ local gradientCoherentNoise = S.memoize(function(real)
 
 		-- Calculate noise values at each grid vertex, then bilinear
 		--    interpolate to get final noise value
-		var n00 = gradientNoise(x, y, x0, y0, grads)
-		var n01 = gradientNoise(x, y, x0, y1, grads)
+		var n00 = gradientNoise(x, y, x0, y0, seed, grads)
+		var n01 = gradientNoise(x, y, x0, y1, seed, grads)
 		var n0 = lerp(n00, n01, ys)
-		var n10 = gradientNoise(x, y, x1, y0, grads)
-		var n11 = gradientNoise(x, y, x1, y1, grads)
+		var n10 = gradientNoise(x, y, x1, y0, seed, grads)
+		var n11 = gradientNoise(x, y, x1, y1, seed, grads)
 		var n1 = lerp(n10, n11, ys)
 		return lerp(n0, n1, xs)
 	end
