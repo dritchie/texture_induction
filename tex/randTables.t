@@ -16,7 +16,7 @@ end)
 --    This is our version of that 'constant table' (a 256-element table)
 local const_gradients = S.memoize(function(real)
 	local Vec2 = Vec(real, 2)
-	local gradients = global(GradientTable)
+	local gradients = global(GradientTable(real))
 	local terra fillgradients()
 		-- Generate a bunch of uniformly-distributed random vectors.
 		-- These probably won't be very nice (i.e. something low-discrepancy would be better),

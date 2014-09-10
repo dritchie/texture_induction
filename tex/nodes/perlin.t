@@ -22,7 +22,7 @@ local GradientTable = randTables.GradientTable
 
 local PerlinNode = S.memoize(function(real)
 
-	local struct PerlinNode(node.Metatype)
+	local struct PerlinNode(S.Object)
 	{
 		gradients: &GradientTable(real),
 		frequency: real,
@@ -31,9 +31,11 @@ local PerlinNode = S.memoize(function(real)
 		octaves: uint
 	}
 	local Node = node.Node(real, 1)
+	PerlinNode.ParentType = Node
+	node.Metatype(PerlinNode)
 	inherit.dynamicExtend(Node, PerlinNode)
 
-	terra PerlinNode:__init(imPool: &ImagePool(real), grads: &GradientTable(real),
+	terra PerlinNode:__init(imPool: &ImagePool(real, 1), grads: &GradientTable(real),
 							freq: real, lac: real, pers: real, oct: uint) : {}
 		Node.__init(self, imPool)
 		self.gradients = grads
@@ -43,7 +45,7 @@ local PerlinNode = S.memoize(function(real)
 		self.octaves = oct
 	end
 
-	terra PerlinNode:evalPointImpl(x: real, y: real)
+	terra PerlinNode:eval(x: real, y: real)
 		x = x * self.frequency
 		y = y * self.frequency
 		var persist = real(1.0)

@@ -216,7 +216,7 @@ Mat = S.memoize(function(real, rowdim, coldim)
 		local Vec4 = Vec(real, 4)
 
 		terra MatT:transformPoint(v: Vec3)
-			var vout = @self * Vec4.salloc():init(v(0), v(1), v(2), 1.0)
+			var vout = @self * @Vec4.salloc():init(v(0), v(1), v(2), 1.0)
 			var vret : Vec3
 			if vout(3) == 0.0 then
 				vret:init(0.0, 0.0, 0.0)
@@ -228,7 +228,7 @@ Mat = S.memoize(function(real, rowdim, coldim)
 		MatT.methods.transformPoint:setinlined(true)
 
 		terra MatT:transformVector(v: Vec3)
-			var vout = @self * Vec4.salloc():init(v(0), v(1), v(2), 0.0)
+			var vout = @self * @Vec4.salloc():init(v(0), v(1), v(2), 0.0)
 			var vret : Vec3
 			vret:init(vout(0), vout(1), vout(2))
 			return vret

@@ -42,8 +42,8 @@ local Node = S.memoize(function(real, nchannels)
 		var yrange = yhi - ylo
 		var xdelta = xrange / xres
 		var ydelta = yrange / yres
-		var xval = xmin
-		var yval = ymin
+		var xval = xlo
+		var yval = ylo
 		for y=0,yres do
 			for x=0,xres do
 				outimg(x,y) = self:evalPoint(xval, yval)
@@ -105,22 +105,38 @@ local function getInputEntries(nodeClass)
 	return lst
 end
 
+-- If the number of channels is 1, then 'eval' returns real and we need
+--    to convert that to a Vec(real, 1) to be consistent with downstream code.
+local function ensureVecEval(expr, nodeClass)
+	if nodeClass.ParentType.NumChannels == 1 then
+		local VecT = Vec(nodeClass.ParentType.RealType, 1)
+		return quote
+			var v : VecT
+			v:init(expr)
+		in
+			v
+		end
+	else
+		return expr
+	end
+end
+
 local genEvalPoint = macro(function(self, x, y)
 	local nodeClass = self:gettype().type
-	assert(nodeClass:getmethod("evalPointImpl"),
-		string.format("Texture node type %s must have an evalPointImpl method", tostring(nodeClass)))
-	-- evalPoint all of the inputs, then pass the results to evalPointImpl.
+	assert(nodeClass:getmethod("eval"),
+		string.format("Texture node type %s must have an eval method", tostring(nodeClass)))
+	-- evalPoint all of the inputs, then pass the results to eval.
 	local inputs = getInputEntries(nodeClass)
 	local inputResults = inputs:map(function(e) return `self.[e.field]:evalPoint(x,y) end)
-	return `self:evalPointImpl(x, y, [inputResults])
+	return ensureVecEval(`self:eval(x, y, [inputResults]), nodeClass)
 end)
 
 local genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
 	local nodeClass = self:gettype().type
-	assert(nodeClass:getmethod("evalPointImpl"),
-		string.format("Texture node type %s must have an evalPointImpl method", tostring(nodeClass)))
+	assert(nodeClass:getmethod("eval"),
+		string.format("Texture node type %s must have an eval method", tostring(nodeClass)))
 	-- Fetch an image to use for our output.
-	-- evalImage all of the inputs, then iterate over the results, calling evalPointImpl.
+	-- evalImage all of the inputs, then iterate over the results, calling eval.
 	-- Release the images used for input results.
 	local inputs = getInputEntries(nodeClass)
 	local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
@@ -129,7 +145,7 @@ local genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
 		quote var [inputTemps] = [inputResults] end
 	or
 		quote end
-	function inputTempsXY(x,y)
+	local function inputTempsXY(x,y)
 		return inputTemps:map(function(img) return `img(x,y) end)
 	end
 	local freeInputResults = inputTemps:map(function(img) return `self.imagePool:release(img) end)
@@ -140,11 +156,12 @@ local genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
 		var yrange = yhi - ylo
 		var xdelta = xrange / xres
 		var ydelta = yrange / yres
-		var xval = xmin
-		var yval = ymin
+		var xval = xlo
+		var yval = ylo
 		for y=0,yres do
 			for x=0,xres do
-				outimg(x,y) = self:evalPointImpl(xval, yval, [inputTempsXY(xval, yval)])
+				-- outimg(x,y) = [ensureVecEval(`self:eval(xval, yval, [inputTempsXY(xval, yval)]), nodeClass)]
+				outimg(x,y) = [ensureVecEval(`0.0, nodeClass)]
 				xval = xval + xdelta
 			end
 			yval = yval + ydelta
@@ -161,19 +178,16 @@ end)
 --    pointwise implementation that we assume to exist.
 local function Metatype(nodeClass)
 
-	-- First, always apply S.Object
-	S.Object(nodeClass)
+	local real = nodeClass.ParentType.RealType
 
-	local real = nodeClass.RealType
-
-	terra nodeClass:evalPoint(x: real, y: real) : Node.OutputType
-		return [genEvalPoint(x,y)]
+	terra nodeClass:evalPoint(x: real, y: real) : nodeClass.ParentType.OutputType
+		return genEvalPoint(self, x,y)
 	end
 	inherit.virtual(nodeClass, "evalPoint")
 
 	terra nodeClass:evalImage(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
-							  : &image.Image(real, nodeClass.NumChannels)
-		return [genEvalImage(xres,yres,xlo,xhi,ylo,yhi)]
+							  : &image.Image(real, nodeClass.ParentType.NumChannels)
+		return genEvalImage(self, xres,yres,xlo,xhi,ylo,yhi)
 	end
 	inherit.virtual(nodeClass, "evalImage")
 

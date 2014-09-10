@@ -39,24 +39,25 @@ local gradientNoise = S.memoize(function(real)
 			X_NOISE_GEN * x +
 			Y_NOISE_GEN * y +
 			SEED_NOISE_GEN * seed
-		) & 0xffffffff	-- Not sure why this is necessary...?
+		) and 0xffffffff	-- Not sure why this is necessary...?
 		index = index ^ (index >> SHIFT_NOISE_GEN)
 		-- Ensure all indices are in range
 		-- TODO: Try 'mod' instead to see what it does?
-		index = index and grads:size()
-		var g = grads(index)
+		index = index and [GradientTable(real).N]
+		var g = (@grads)[index]
 
 		-- Take the dot product of this gradient with the vector between (fx,fy)
 		--    and (x,y)
-		-- Also rescale to be in the range (-1, 1)
-		var v = [Vec(real,2)].salloc():init(fx-x, fy-y)
-		return v:dot(g) * 2.12
+		-- Also rescale to be in the range (0, 1)
+		var v = @[Vec(real,2)].salloc():init(fx-x, fy-y)
+		return ((v:dot(g) * 2.12) + 1) * 0.5
 	end
 end)
 
 
 -- Compute coherent gradient noise at a point
 local gradientCoherentNoise = S.memoize(function(real)
+	local gradNoise = gradientNoise(real)
 	return terra(x: real, y: real, seed: int, grads: &GradientTable(real))
 		-- Bound the input point within an integer grid cell
 		-- TODO: Use a CUDA-aware floor function
@@ -72,11 +73,11 @@ local gradientCoherentNoise = S.memoize(function(real)
 
 		-- Calculate noise values at each grid vertex, then bilinear
 		--    interpolate to get final noise value
-		var n00 = gradientNoise(x, y, x0, y0, seed, grads)
-		var n01 = gradientNoise(x, y, x0, y1, seed, grads)
+		var n00 = gradNoise(x, y, x0, y0, seed, grads)
+		var n01 = gradNoise(x, y, x0, y1, seed, grads)
 		var n0 = lerp(n00, n01, ys)
-		var n10 = gradientNoise(x, y, x1, y0, seed, grads)
-		var n11 = gradientNoise(x, y, x1, y1, seed, grads)
+		var n10 = gradNoise(x, y, x1, y0, seed, grads)
+		var n11 = gradNoise(x, y, x1, y1, seed, grads)
 		var n1 = lerp(n10, n11, ys)
 		return lerp(n0, n1, xs)
 	end
