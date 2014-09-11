@@ -20,7 +20,11 @@ local GradientTable = randTables.GradientTable
 -- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
 
 
+-- Perlin noise texture node
 local PerlinNode = S.memoize(function(real)
+
+	-- IMPORTANT: The perisistance parameter should be less than 1 to keep
+	--    the output of this node in the range (0, 1)
 
 	local struct PerlinNode(S.Object)
 	{
@@ -58,7 +62,9 @@ local PerlinNode = S.memoize(function(real)
 			y = y * self.lacunarity
 		end
 
-		return value
+		-- Transform value from (-1, 1) to (0, 1)
+		-- S.printf("%g\n", (value + 1) * 0.5)
+		return (value + 1) * 0.5
 	end
 
 	return PerlinNode

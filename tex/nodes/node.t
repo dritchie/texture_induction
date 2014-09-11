@@ -8,6 +8,8 @@ local ImagePool = terralib.require("tex.imagePool")
 -- Abstract base class for all texture nodes
 local Node = S.memoize(function(real, nchannels)
 
+	-- IMPORTANT: All output channels of all nodes should always be in the range (0, 1)
+
 	local OutputType = Vec(real, nchannels)
 
 	local struct Node(S.Object)
@@ -42,9 +44,9 @@ local Node = S.memoize(function(real, nchannels)
 		var yrange = yhi - ylo
 		var xdelta = xrange / xres
 		var ydelta = yrange / yres
-		var xval = xlo
 		var yval = ylo
 		for y=0,yres do
+			var xval = xlo
 			for x=0,xres do
 				outimg(x,y) = self:evalPoint(xval, yval)
 				xval = xval + xdelta
@@ -156,12 +158,11 @@ local genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
 		var yrange = yhi - ylo
 		var xdelta = xrange / xres
 		var ydelta = yrange / yres
-		var xval = xlo
 		var yval = ylo
 		for y=0,yres do
+			var xval = xlo
 			for x=0,xres do
-				-- outimg(x,y) = [ensureVecEval(`self:eval(xval, yval, [inputTempsXY(xval, yval)]), nodeClass)]
-				outimg(x,y) = [ensureVecEval(`0.0, nodeClass)]
+				outimg(x,y) = [ensureVecEval(`self:eval(xval, yval, [inputTempsXY(xval, yval)]), nodeClass)]
 				xval = xval + xdelta
 			end
 			yval = yval + ydelta

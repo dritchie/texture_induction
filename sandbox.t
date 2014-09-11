@@ -14,10 +14,10 @@ local terra test()
 	
 	var impool = [ImagePool(double, 1)].salloc():init()
 	var perlin = [PerlinNode(double)].salloc():init(impool, &gradients,
-		1.0, 2.0, 0.5, 6)
-	var tex = perlin:genTexturePointwise(512, 512, -1.0, 1.0, -1.0, 1.0)
-	-- var tex = perlin:genTextureBlocked(512, 512, -1.0, 1.0, -1.0, 1.0)
-	tex:save(image.Format.PNG, "perlinTest.png")
+													1.0, 3.0, 0.75, 6)
+	var tex = perlin:genTexturePointwise(512, 512, 0.0, 1.0, 0.0, 1.0)
+	-- var tex = perlin:genTextureBlocked(512, 512, 0.0, 1.0, 0.0, 1.0)
+	[image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png")
 	impool:release(tex)
 
 end

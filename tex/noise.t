@@ -43,17 +43,17 @@ local gradientNoise = S.memoize(function(real)
 		index = index ^ (index >> SHIFT_NOISE_GEN)
 		-- Ensure all indices are in range
 		-- TODO: Try 'mod' instead to see what it does?
-		index = index and [GradientTable(real).N]
+		index = index and [GradientTable(real).N - 1]
 		var g = (@grads)[index]
+		-- S.printf("%g, %g\n", g(0), g(1))
 
 		-- Take the dot product of this gradient with the vector between (fx,fy)
 		--    and (x,y)
-		-- Also rescale to be in the range (0, 1)
+		-- Also rescale to be in the range (-1, 1)
 		var v = @[Vec(real,2)].salloc():init(fx-x, fy-y)
-		return ((v:dot(g) * 2.12) + 1) * 0.5
+		return v:dot(g) * [1.0/math.sqrt(2)]
 	end
 end)
-
 
 -- Compute coherent gradient noise at a point
 local gradientCoherentNoise = S.memoize(function(real)
@@ -61,9 +61,9 @@ local gradientCoherentNoise = S.memoize(function(real)
 	return terra(x: real, y: real, seed: int, grads: &GradientTable(real))
 		-- Bound the input point within an integer grid cell
 		-- TODO: Use a CUDA-aware floor function
-		var x0 = tmath.floor(x)
+		var x0 = int(tmath.floor(x))
 		var x1 = x0 + 1
-		var y0 = tmath.floor(y)
+		var y0 = int(tmath.floor(y))
 		var y1 = y0 + 1
 
 		-- Cubic interpolate the distance from the origin of the cell
@@ -73,6 +73,7 @@ local gradientCoherentNoise = S.memoize(function(real)
 
 		-- Calculate noise values at each grid vertex, then bilinear
 		--    interpolate to get final noise value
+		-- S.printf("--------------\n")
 		var n00 = gradNoise(x, y, x0, y0, seed, grads)
 		var n01 = gradNoise(x, y, x0, y1, seed, grads)
 		var n0 = lerp(n00, n01, ys)

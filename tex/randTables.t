@@ -22,13 +22,9 @@ local const_gradients = S.memoize(function(real)
 		-- These probably won't be very nice (i.e. something low-discrepancy would be better),
 		--    but this is essentially the method we'll be stuck with if we end up making these
 		--    random variables
-		escape
-			for i=1,gradientTableSize do
-				emit quote
-					var ang = [distrib.uniform(real)].sample(0.0, [2*math.pi])
-					gradients[ [i-1] ] = Vec2.fromPolar(1.0, ang)
-				end
-			end
+		for i=0,gradientTableSize do
+			var ang = [distrib.uniform(real)].sample(0.0, [2*math.pi])
+			gradients[i] = Vec2.fromPolar(1.0, ang)
 		end
 	end
 	fillgradients()
