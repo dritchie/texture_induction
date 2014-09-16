@@ -1,6 +1,6 @@
 local S = terralib.require("qs.lib.std")
-local Vec = terralib.require("utils.linalg.vec")	-- TODO: Make this absolute/proper relative?
-local cmath = terralib.includec("math.h")
+local Vec = terralib.require("utils.linalg.vec")
+local tmath = terralib.require("qs.lib.tmath")
 
 
 ----------------------------------------------------------------------------------------------
@@ -221,8 +221,7 @@ local Image = S.memoize(function(dataType, numChannels)
 			elseif tgtDataType:isintegral() and srcDataType:isfloat() then
 				local tsize = terralib.sizeof(tgtDataType)
 				local maxtval = (2 ^ B2b(tsize)) - 1
-				-- return `cmath.fmin(cmath.fmax([tgtDataType](x * maxtval), 0.0), maxtval)
-				return `[tgtDataType](cmath.fmin(cmath.fmax(x, 0.0), 1.0) * maxtval)
+				return `[tgtDataType](tmath.fmin(tmath.fmax(x, 0.0), 1.0) * maxtval)
 			else
 				return `[tgtDataType](x)
 			end

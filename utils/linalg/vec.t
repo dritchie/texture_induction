@@ -1,5 +1,5 @@
 local S = terralib.require("qs.lib.std")
-local tmath = terralib.require("qs.lib.tmath")
+local mathlib = terralib.require("utils.mathlib")
 
 
 -- Code gen helpers
@@ -37,7 +37,9 @@ end
 -- 'real' type must be primitive or POD (i.e. it is not safe to use a type with a non-trivial destructor)
 -- Methods are defined to operate on Vecs by-value, not by-pointer (since metamethods must be defined this way).
 local Vec
-Vec = S.memoize(function(real, dim)
+Vec = S.memoize(function(real, dim, GPU)
+
+	local mlib = mathlib(GPU)
 
 	local struct VecT(S.Object)
 	{
@@ -207,7 +209,7 @@ Vec = S.memoize(function(real, dim)
 		elseif nd >= 1.0 then
 			return real(0.0)
 		else
-			return tmath.acos(nd)
+			return mlib.acos(nd)
 		end
 	end
 	VecT.methods.angleBetween:setinlined(true)
@@ -219,7 +221,7 @@ Vec = S.memoize(function(real, dim)
 	end
 	VecT.methods.distSq:setinlined(true)
 	terra VecT:dist(v: VecT)
-		return tmath.sqrt(self:distSq(v))
+		return mlib.sqrt(self:distSq(v))
 	end
 	VecT.methods.dist:setinlined(true)
 	terra VecT:normSq()
@@ -229,7 +231,7 @@ Vec = S.memoize(function(real, dim)
 	end
 	VecT.methods.normSq:setinlined(true)
 	terra VecT:norm()
-		return tmath.sqrt(self:normSq())
+		return mlib.sqrt(self:normSq())
 	end
 	VecT.methods.norm:setinlined(true)
 	terra VecT:normalize()
@@ -244,14 +246,14 @@ Vec = S.memoize(function(real, dim)
 	terra VecT:collinear(other: VecT)
 		var n1 = self:norm()
 		var n2 = other:norm()
-		return 1.0 - tmath.fabs(self:dot(other)/(n1*n2)) < collinearThresh
+		return 1.0 - mlib.fabs(self:dot(other)/(n1*n2)) < collinearThresh
 	end
 	VecT.methods.collinear:setinlined(true)
 
 	local planeThresh = 1e-8
 	terra VecT:inPlane(p: VecT, n: VecT) : bool
 		n:normalize()
-		return tmath.fabs((@self - p):dot(n)) < planeThresh
+		return mlib.fabs((@self - p):dot(n)) < planeThresh
 	end
 	VecT.methods.inPlane:setinlined(true)
 
@@ -288,13 +290,13 @@ Vec = S.memoize(function(real, dim)
 	if dim == 2 then
 		VecT.methods.fromPolar = terra(r: real, theta: real)
 			var v : VecT
-			v:init(r*tmath.cos(theta), r*tmath.sin(theta))
+			v:init(r*mlib.cos(theta), r*mlib.sin(theta))
 			return v
 		end
 
 		terra VecT:toPolar()
 			var r = self:norm()
-			var theta = tmath.atan2(self(1), self(0))
+			var theta = mlib.atan2(self(1), self(0))
 			return r, theta
 		end
 	end
@@ -302,16 +304,16 @@ Vec = S.memoize(function(real, dim)
 	-- Specific stuff for 3D Vectors
 	if dim == 3 then
 		VecT.methods.fromSpherical = terra(r: real, theta: real, phi: real)
-			var rsin = r * tmath.sin(theta)
+			var rsin = r * mlib.sin(theta)
 			var v : VecT
-			v:init(rsin*tmath.cos(phi), rsin*tmath.sin(phi), r*tmath.cos(theta))
+			v:init(rsin*mlib.cos(phi), rsin*mlib.sin(phi), r*mlib.cos(theta))
 			return v
 		end
 
 		terra VecT:toSpherical()
 			var r = self:norm()
-			var theta = tmath.acos(self(2)/r)
-			var phi = tmath.atan2(self(1), self(0))
+			var theta = mlib.acos(self(2)/r)
+			var phi = mlib.atan2(self(1), self(0))
 			return r, theta, phi
 		end
 
@@ -359,7 +361,7 @@ Vec = S.memoize(function(real, dim)
 	-- Min/max/abs
 	terra VecT:maxInPlace(other: VecT)
 		[entryList(self)] = [zip(entryList(self), entryList(other),
-			function(a,b) return `tmath.fmax(a, b) end)]
+			function(a,b) return `mlib.fmax(a, b) end)]
 	end
 	VecT.methods.maxInPlace:setinlined(true)
 	terra VecT:max(other: VecT)
@@ -371,7 +373,7 @@ Vec = S.memoize(function(real, dim)
 	VecT.methods.max:setinlined(true)
 	terra VecT:minInPlace(other: VecT)
 		[entryList(self)] = [zip(entryList(self), entryList(other),
-			function(a,b) return `tmath.fmin(a, b) end)]
+			function(a,b) return `mlib.fmin(a, b) end)]
 	end
 	VecT.methods.minInPlace:setinlined(true)
 	terra VecT:min(other: VecT)
@@ -382,7 +384,7 @@ Vec = S.memoize(function(real, dim)
 	end
 	VecT.methods.min:setinlined(true)
 	terra VecT:absInPlace()
-		[entryList(self)] = [wrap(entryList(self), function(a) return `tmath.fabs(a) end)]
+		[entryList(self)] = [wrap(entryList(self), function(a) return `mlib.fabs(a) end)]
 	end
 	VecT.methods.absInPlace:setinlined(true)
 	terra VecT:abs()
@@ -407,7 +409,10 @@ end)
 
 
 
-return Vec
+return function(real, dim, GPU)
+	if GPU == nil then GPU = false end
+	return Vec(real, dim, GPU)
+end
 
 
 

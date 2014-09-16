@@ -1,6 +1,6 @@
 local S = terralib.require("qs.lib.std")
-local tmath = terralib.require("qs.lib.tmath")
-local Vec = terralib.require("utils.linalg.vec")	-- TODO: Make this absolute/proper relative?
+local mathlib = terralib.require("utils.mathlib")
+local Vec = terralib.require("utils.linalg.vec")
 
 
 -- Code gen helpers
@@ -38,7 +38,10 @@ end
 -- 'real' type must be primitive or POD (i.e. it is not safe to use a type with a non-trivial destructor)
 -- Methods are defined to operate on Mats by-value, not by-pointer (since metamethods must be defined this way).
 local Mat
-Mat = S.memoize(function(real, rowdim, coldim)
+Mat = S.memoize(function(real, rowdim, coldim, GPU)
+
+	local mlib = mathlib(GPU)
+
 	local numelems = rowdim*coldim
 	local struct MatT(S.Object)
 	{
@@ -259,8 +262,8 @@ Mat = S.memoize(function(real, rowdim, coldim)
 
 		MatT.methods.rotateX = terra(r: real)
 			var mat = MatT.identity()
-			var cosr = tmath.cos(r)
-			var sinr = tmath.sin(r)
+			var cosr = mlib.cos(r)
+			var sinr = mlib.sin(r)
 			mat(1,1) = cosr
 			mat(1,2) = -sinr
 			mat(2,1) = sinr
@@ -270,8 +273,8 @@ Mat = S.memoize(function(real, rowdim, coldim)
 
 		MatT.methods.rotateY = terra(r: real)
 			var mat = MatT.identity()
-			var cosr = tmath.cos(r)
-			var sinr = tmath.sin(r)
+			var cosr = mlib.cos(r)
+			var sinr = mlib.sin(r)
 			mat(0,0) = cosr
 			mat(2,0) = -sinr
 			mat(0,2) = sinr
@@ -281,8 +284,8 @@ Mat = S.memoize(function(real, rowdim, coldim)
 
 		MatT.methods.rotateZ = terra(r: real)
 			var mat = MatT.identity()
-			var cosr = tmath.cos(r)
-			var sinr = tmath.sin(r)
+			var cosr = mlib.cos(r)
+			var sinr = mlib.sin(r)
 			mat(0,0) = cosr
 			mat(0,1) = -sinr
 			mat(1,0) = sinr
@@ -291,8 +294,8 @@ Mat = S.memoize(function(real, rowdim, coldim)
 		end
 
 		MatT.methods.rotate = terra(axis: Vec3, angle: real) : MatT
-			var c = tmath.cos(angle)
-			var s = tmath.sin(angle)
+			var c = mlib.cos(angle)
+			var s = mlib.sin(angle)
 			var t = 1.0 - c
 
 			axis:normalize()
@@ -383,7 +386,10 @@ Mat = S.memoize(function(real, rowdim, coldim)
 end)
 
 
-return Mat
+return function(real, rowdim, coldim, GPU)
+	if GPU == nil then GPU = false end
+	return Mat(real, rowdim, coldim, GPU)
+end
 
 
 

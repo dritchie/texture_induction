@@ -13,6 +13,7 @@ local tmath = terralib.require("qs.lib.tmath")
 -- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
 
 local IMG_SIZE = 256
+local GPU = false
 
 ----------------------------------------------------------------------
 
@@ -52,7 +53,7 @@ local p = qs.program(function()
 		var persistence = qs.betamv(0.5, 0.05, {struc=false})
 		var octaves = qs.poisson(6)
 
-		var perlin = [PerlinNode(qs.real)].salloc():init(&impool, &gradients,
+		var perlin = [PerlinNode(qs.real, GPU)].salloc():init(&impool, &gradients,
 			frequency, lacunarity, persistence, octaves)
 		var tex = perlin:genTexturePointwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
 		-- var tex = perlin:genTextureBlocked(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
@@ -90,7 +91,7 @@ report()
 -- local terra test()
 	
 -- 	var impool = [ImagePool(double, 1)].salloc():init()
--- 	var perlin = [PerlinNode(double)].salloc():init(impool, &gradients,
+-- 	var perlin = [PerlinNode(double, GPU)].salloc():init(impool, &gradients,
 -- 													1.0, 3.0, 0.75, 6)
 -- 	var tex = perlin:genTexturePointwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
 -- 	-- var tex = perlin:genTextureBlocked(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)

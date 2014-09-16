@@ -1,7 +1,7 @@
 local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local randTables = terralib.require("tex.randTables")
-local tmath = terralib.require("qs.lib.tmath")
+local mathlib = terralib.require("utils.mathlib")
 
 local GradientTable = randTables.GradientTable
 
@@ -56,14 +56,14 @@ local gradientNoise = S.memoize(function(real)
 end)
 
 -- Compute coherent gradient noise at a point
-local gradientCoherentNoise = S.memoize(function(real)
+local gradientCoherentNoise = S.memoize(function(real, GPU)
 	local gradNoise = gradientNoise(real)
+	local mlib = mathlib(GPU)
 	return terra(x: real, y: real, seed: int, grads: &GradientTable(real))
 		-- Bound the input point within an integer grid cell
-		-- TODO: Use a CUDA-aware floor function
-		var x0 = int(tmath.floor(x))
+		var x0 = int(mlib.floor(x))
 		var x1 = x0 + 1
-		var y0 = int(tmath.floor(y))
+		var y0 = int(mlib.floor(y))
 		var y1 = y0 + 1
 
 		-- Cubic interpolate the distance from the origin of the cell
