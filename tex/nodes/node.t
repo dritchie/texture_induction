@@ -21,10 +21,10 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	local struct NodeT(S.Object)
 	{
-		imagePool: &ImagePool(real, nchannels)
+		imagePool: &ImagePool(real, nchannels, GPU)
 	}
 
-	terra NodeT:__init(impool: &ImagePool(real, nchannels))
+	terra NodeT:__init(impool: &ImagePool(real, nchannels, GPU))
 		self.imagePool = impool
 	end
 

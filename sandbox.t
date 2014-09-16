@@ -25,7 +25,7 @@ local p = qs.program(function()
 	local FACTOR_WEIGHT = 250.0
 
 	local gradients = randTables.const_gradients(qs.real)
-	local impool = global(ImagePool(qs.real, 1))
+	local impool = global(ImagePool(qs.real, 1, GPU))
 
 	local Image = image.Image(qs.real, 1)
 	local targetImg = global(Image)
@@ -90,7 +90,7 @@ report()
 -- local gradients = randTables.const_gradients(double)
 -- local terra test()
 	
--- 	var impool = [ImagePool(double, 1)].salloc():init()
+-- 	var impool = [ImagePool(double, 1, GPU)].salloc():init()
 -- 	var perlin = [PerlinNode(double, GPU)].salloc():init(impool, &gradients,
 -- 													1.0, 3.0, 0.75, 6)
 -- 	var tex = perlin:genTexturePointwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)

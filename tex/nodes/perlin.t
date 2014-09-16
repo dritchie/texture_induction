@@ -38,7 +38,7 @@ local PerlinNode = S.memoize(function(real, GPU)
 	ParentNodeType.Metatype(PerlinNode)
 	inherit.dynamicExtend(ParentNodeType, PerlinNode)
 
-	terra PerlinNode:__init(imPool: &ImagePool(real, 1), grads: &GradientTable(real),
+	terra PerlinNode:__init(imPool: &ImagePool(real, 1, GPU), grads: &GradientTable(real),
 							freq: real, lac: real, pers: real, oct: uint) : {}
 		ParentNodeType.__init(self, imPool)
 		self.gradients = grads

@@ -1,11 +1,17 @@
 local S = terralib.require("qs.lib.std")
 local image = terralib.require("utils.image")
+local CUDAImage = terralib.require("utils.cuimage")
 
 
 -- A reusable pool of image data (to avoid allocating more images than necessary)
-local ImagePool = S.memoize(function(real, nchannels)
+local ImagePool = S.memoize(function(real, nchannels, GPU)
 
-	local Image = image.Image(real, nchannels)
+	local Image
+	if GPU then
+		Image = CUDAImage(real, nchannels)
+	else
+		Image = image.Image(real, nchannels)
+	end
 
 	local struct ImagePool(S.Object)
 	{
