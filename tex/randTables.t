@@ -1,7 +1,7 @@
 local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local distrib = terralib.require("qs.distrib")
-local curt = terralib.includec("cuda_runtime.h")
+local curt = terralib.require("utils.cuda.curt")
 
 
 -- Should be a power of 2

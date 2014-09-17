@@ -3,7 +3,8 @@ local Vec = terralib.require("utils.linalg.vec")
 local image = terralib.require("utils.image")
 local inherit = terralib.require("utils.inheritance")
 local ImagePool = terralib.require("tex.imagePool")
-local curt = terralib.includec("cuda_runtime.h")
+local CUDAImage = terralib.require("utils.cuda.cuimage")
+local curt = terralib.require("utils.cuda.curt")
 
 
 -- Some random utilities that this file happens to need

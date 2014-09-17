@@ -1,5 +1,5 @@
 local S = terralib.require("qs.lib.std")
-local curt = terralib.includec("cuda_runtime.h")
+local curt = terralib.require("utils.cuda.curt")
 local image = terralib.require("utils.image")
 local Vec = terralib.require("utils.linalg.vec")
 

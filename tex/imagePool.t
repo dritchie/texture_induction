@@ -1,6 +1,6 @@
 local S = terralib.require("qs.lib.std")
 local image = terralib.require("utils.image")
-local CUDAImage = terralib.require("utils.cuimage")
+local CUDAImage = terralib.require("utils.cuda.cuimage")
 
 
 -- A reusable pool of image data (to avoid allocating more images than necessary)

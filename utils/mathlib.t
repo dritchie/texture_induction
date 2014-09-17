@@ -1,5 +1,5 @@
 local tmath = terralib.require("qs.lib.tmath")
-local cumath = terralib.require("utils.cumath")
+local cumath = terralib.require("utils.cuda.cumath")
 
 return function(GPU)
 	assert(GPU ~= nil, "mathlib: GPU flag must be explicitly provided")
