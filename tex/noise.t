@@ -50,7 +50,7 @@ local gradientNoise = S.memoize(function(real, GPU)
 		-- Take the dot product of this gradient with the vector between (fx,fy)
 		--    and (x,y)
 		-- Also rescale to be in the range (-1, 1)
-		var v = @[Vec(real,2)].salloc():init(fx-x, fy-y)
+		var v = @[Vec(real,2,GPU)].salloc():init(fx-x, fy-y)
 		return v:dot(g) * [1.0/math.sqrt(2)]
 	end
 end)

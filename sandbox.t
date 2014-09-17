@@ -1,9 +1,9 @@
 local S = terralib.require("qs.lib.std")
+local mathlib = terralib.require("utils.mathlib")
 local image = terralib.require("utils.image")
 local PerlinNode = terralib.require("tex.nodes.perlin")
 local ImagePool = terralib.require("tex.imagePool")
 local randTables = terralib.require("tex.randTables")
-local tmath = terralib.require("qs.lib.tmath")
 
 
 -- -- For reference:
@@ -13,7 +13,7 @@ local tmath = terralib.require("qs.lib.tmath")
 -- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
 
 local IMG_SIZE = 256
-local GPU = false
+local GPU = true
 
 ----------------------------------------------------------------------
 
@@ -24,18 +24,22 @@ local p = qs.program(function()
 
 	local FACTOR_WEIGHT = 250.0
 
-	local gradients = randTables.const_gradients(qs.real)
+	local gradients = randTables.const_gradients(qs.real, GPU)
 	local impool = global(ImagePool(qs.real, 1, GPU))
 
 	local Image = image.Image(qs.real, 1)
 	local targetImg = global(Image)
+	local testImg = global(Image)
 
 	local terra initglobals()
 		impool:init()
 		targetImg:init(image.Format.PNG, "perlinTest.png")
+		testImg:init()
 	end
 	initglobals()
 
+	-- TODO: CUDA parallel reduction
+	local mlib = mathlib(false)
 	local terra imMSE(im1: &Image, im2: &Image)
 		var sqerr = qs.real(0.0)
 		for y=0,im1.height do
@@ -44,7 +48,7 @@ local p = qs.program(function()
 				sqerr = sqerr + diff:dot(diff)
 			end
 		end
-		return tmath.sqrt(sqerr / (im1.width*im1.height))
+		return mlib.sqrt(sqerr / (im1.width*im1.height))
 	end
 
 	return terra()
@@ -55,10 +59,19 @@ local p = qs.program(function()
 
 		var perlin = [PerlinNode(qs.real, GPU)].salloc():init(&impool, gradients,
 			frequency, lacunarity, persistence, octaves)
-		var tex = perlin:interpretPixelwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
-		-- var tex = perlin:interpretNodewise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+		-- var tex = perlin:interpretPixelwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+		var tex = perlin:interpretNodewise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
 
-		qs.factor(-imMSE(tex, &targetImg) * FACTOR_WEIGHT)
+		escape
+			if not GPU then
+				emit quote qs.factor(-imMSE(tex, &targetImg) * FACTOR_WEIGHT) end
+			else
+				emit quote
+					tex:toHostImg(&testImg)
+					qs.factor(-imMSE(&testImg, &targetImg) * FACTOR_WEIGHT)
+				end
+			end
+		end
 
 		impool:release(tex)
 		return frequency, lacunarity, persistence, octaves

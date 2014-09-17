@@ -14,7 +14,7 @@ local CUDAImage = S.memoize(function(real, nchannels)
 		data: &Color,
 		width: uint,
 		height: uint,
-		pitch: uint
+		pitch: uint64
 	}
 
 	terra CUDAImage:__init() : {}
@@ -58,6 +58,8 @@ local CUDAImage = S.memoize(function(real, nchannels)
 			self:init(width, height)
 		end
 	end
+
+	return CUDAImage
 
 end)
 

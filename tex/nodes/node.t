@@ -14,7 +14,7 @@ local function stringStartsWith(str, prefix)
 end
 
 local lerp = macro(function(lo, hi, t)
-	return (1.0-t)*lo + t*hi
+	return `(1.0-t)*lo + t*hi
 end)
 
 local terra getCUDADeviceProps()
@@ -144,7 +144,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 	local function getParamEntries(nodeClass)
 		local function isDefinedOnBaseClass(entry)
 			for _,e in ipairs(NodeT.entries) do
-				if e.field == entry.field and e.type == entry.type then
+				if e.field == entry.field then
 					return true
 				end
 			end
@@ -263,16 +263,16 @@ Node = S.memoize(function(real, nchannels, GPU)
 					return `@( [&T] ( [&uint8](s) + yi*pitch ) + xi )
 				end)
 			end
-			local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint, xlo: real, xhi: real, ylo: real, yhi: real,
+			local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint64, xlo: real, xhi: real, ylo: real, yhi: real,
 							  [inputSyms], [paramSyms])
-				var xi = cudalib.nvvm_read_ptx_sreg_tid_x
-				var yi = cudalib.nvvm_read_ptx_sreg_tid_y
+				var xi = cudalib.nvvm_read_ptx_sreg_tid_x()
+				var yi = cudalib.nvvm_read_ptx_sreg_tid_y()
 				var xt = xi / real(width)
 				var yt = yi / real(height)
 				var x = lerp(xlo, xhi, xt)
 				var y = lerp(ylo, yhi, yt)
 				var outptr = [&OutputType]( [&uint8](output) + yi*pitch ) + xi
-				@outptr = nodeClass.eval(x, y, [inputTempsXY(xi, yi, pitch)], [paramSyms])
+				@outptr = [ensureVecEval(`nodeClass.eval(x, y, [inputTempsXY(xi, yi, pitch)], [paramSyms]), nodeClass)]
 			end
 			local K = terralib.cudacompile({kernel = kernel}, false)
 			local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
