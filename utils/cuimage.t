@@ -13,12 +13,14 @@ local CUDAImage = S.memoize(function(real, nchannels)
 	{
 		data: &Color,
 		width: uint,
-		height: uint
+		height: uint,
+		pitch: uint
 	}
 
 	terra CUDAImage:__init() : {}
 		self.width = 0
 		self.height = 0
+		self.pitch = 0
 		self.data = nil
 	end	
 
@@ -27,20 +29,23 @@ local CUDAImage = S.memoize(function(real, nchannels)
 		self.width = width
 		self.height = height
 		if width*height > 0 then
-			curt.cudaMalloc([&&opaque](&self.data), sizeof(Color)*width*height)
+			var s = sizeof(Color)
+			curt.cudaMallocPitch([&&opaque](&self.data), &self.pitch, s*width, s*height)
 		end
 	end
 
 	-- Copy from a CPU image
 	terra CUDAImage:__init(img: &image.Image(real, nchannels)) : {}
 		self:__init(img.width, img.height)
-		curt.cudaMemcpy(self.data, img.data, sizeof(Color)*self.width*self.height, 1)
+		var s = sizeof(Color)
+		curt.cudaMemcpy2D(self.data, self.pitch, img.data, s*img.width, s*img.width, s*img.height, 1)
 	end
 
 	-- Copy to a CPU image
 	terra CUDAImage:toHostImg(img: &image.Image(real, nchannels))
 		img:resize(self.width, self.height)
-		curt.cudaMemcpy(img.data, self.data, sizeof(Color)*self.width*self.height, 2)
+		var s = sizeof(Color)
+		curt.cudaMemcpy2D(img.data, s*img.width, self.data, self.pitch, s*self.width, s*self.height, 2)
 	end
 
 	terra CUDAImage:__destruct()
