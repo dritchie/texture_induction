@@ -12,6 +12,10 @@ local function stringStartsWith(str, prefix)
    return string.sub(str, 1, string.len(prefix)) == prefix
 end
 
+local lerp = macro(function(lo, hi, t)
+	return (1.0-t)*lo + t*hi
+end)
+
 local terra getCUDADeviceProps()
 	var devid : int
 	curt.cudaGetDevice(&devid)
@@ -43,6 +47,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		imagePool: &ImagePool(real, nchannels, GPU)
 	}
 	NodeT.OutputType = OutputType
+	NodeT.ImageType = Image
 
 	terra NodeT:__init(impool: &ImagePool(real, nchannels, GPU))
 		self.imagePool = impool
@@ -177,16 +182,14 @@ Node = S.memoize(function(real, nchannels, GPU)
 		local inputEntries = getInputEntries(nodeClass)
 		local inputSyms = inputEntries:map(function(e) return symbol(e.type) end)
 		local paramEntries = getParamEntries(nodeClass)
-		local function paramExps(self)
-			return paramEntries:map(function(e) return `self.[e.field] end)
-		end
 		-- Function body has to be wrapped in a macro to defer specialization until after class
 		--    author has defined the 'eval' method
 		local genFnBody = macro(function(self, x, y, ...)
 			local inputs = {...}
 			assert(nodeClass:getmethod("eval"),
 				string.format("Texture node type %s must have an eval method", tostring(nodeClass)))
-			return `nodeClass.eval(x, y, [inputs], [paramExps(self)])
+			local paramExps = paramEntries:map(function(e) return `self.[e.field] end)
+			return `nodeClass.eval(x, y, [inputs], [paramExps])
 		end)
 		nodeClass.methods.evalSelf = terra(self: &nodeClass, x: real, y: real, [inputSyms])
 			return genFnBody(self, x, y, [inputSyms])
@@ -204,7 +207,6 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	-- Generate code for the virtual 'evalImage' method
 	-- CPU version iterates over every pixel
-	-- GPU version defines a CUDA kernel that does this in parallel
 	local genEvalImage
 	if not GPU then
 		genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
@@ -214,7 +216,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 			-- Release the images used for input results.
 			local inputs = getInputEntries(nodeClass)
 			local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
-			local inputTemps = inputs:map(function(e) return symbol(e.type) end)
+			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.ImageType) end)
 			local inputTempsAssign = #inputTemps > 0 and
 				quote var [inputTemps] = [inputResults] end
 			or
@@ -244,28 +246,51 @@ Node = S.memoize(function(real, nchannels, GPU)
 				outimg
 			end
 		end)
+	-- GPU version defines a CUDA kernel that does the above in parallel
 	else
-		-- genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
-		-- 	local nodeClass = self:gettype().type
-		-- 	-- We generate and compile a CUDA kernel, then return a quote that calls that kernel.
-		-- 	local inputs = getInputEntries(nodeClass)
-		-- 	local inputSyms = inputs:map(function(e) return symbol(&e.type.type.OutputType) end)
-		-- 	local function inputTempsXY(x,y,pitch)
-		-- 		return inputSyms:map(function(s)
-		-- 			local T = s.type.type
-		-- 			return `@( [&T] ( [&uint8](s) + y*pitch ) + x )
-		-- 		end)
-		-- 	end
-		-- 	local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint, [inputSyms])
-		-- 		var x = cudalib.nvvm_read_ptx_sreg_tid_x
-		-- 		var y = cudalib.nvvm_read_ptx_sreg_tid_y
-		-- 		var outptr = [&OutputType]( [&uint8](output) + y*pitch ) + x
-		-- 		-- @outptr = 
-		-- 	end
-		-- 	return quote
-		-- 		--
-		-- 	end
-		-- end)
+		genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
+			local nodeClass = self:gettype().type
+			-- We generate and compile a CUDA kernel, then return a quote that calls that kernel.
+			local inputs = getInputEntries(nodeClass)
+			local inputSyms = inputs:map(function(e) return symbol(&e.type.type.OutputType) end)
+			local params = getParamEntries(nodeClass)
+			local paramSyms = params:map(function(e) return symbol(e.type) end)
+			local function inputTempsXY(xi, yi, pitch)
+				return inputSyms:map(function(s)
+					local T = s.type.type
+					return `@( [&T] ( [&uint8](s) + yi*pitch ) + xi )
+				end)
+			end
+			local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint, xlo: real, xhi: real, ylo: real, yhi: real,
+							  [inputSyms], [paramSyms])
+				var xi = cudalib.nvvm_read_ptx_sreg_tid_x
+				var yi = cudalib.nvvm_read_ptx_sreg_tid_y
+				var xt = xi / real(width)
+				var yt = yi / real(height)
+				var x = lerp(xlo, xhi, xt)
+				var y = lerp(ylo, yhi, yt)
+				var outptr = [&OutputType]( [&uint8](output) + yi*pitch ) + xi
+				@outptr = nodeClass.eval(x, y, [inputTempsXY(xi, yi, pitch)], [paramSyms])
+			end
+			local K = terralib.cudacompile({kernel = kernel}, false)
+			local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
+			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.ImageType) end)
+			local inputTempsAssign = #inputTemps > 0 and
+				quote var [inputTemps] = [inputResults] end
+			or
+				quote end
+			local inputTempsData = inputTemps:map(function(img) return `img.data end)
+			local paramExps = params:map(function(e) return `self.[e.field] end)
+			local freeInputResults = inputTemps:map(function(img) return `self.imagePool:release(img) end)
+			return quote
+				var outimg = self.imagePool:fetch(xres, yres)
+				[inputTempsAssign]
+				K.kernel(outimg.data, xres, yres, outimg.pitch, xlo, xhi, ylo, yhi, [inputTempsData], [paramExps])
+				[freeInputResults]
+			in
+				outimg
+			end
+		end)
 	end
 
 	function NodeT.Metatype(nodeClass)
