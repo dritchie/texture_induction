@@ -36,9 +36,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 	-- Evaluate the texture function represented by this NodeT at the point (x,y)
 	inherit.purevirtual(NodeT, "evalPoint", {real,real}->OutputType)
 
-	-- Generate a texture image from the graph rooted at this node, evaluating the entire graph at
-	--    every pixel.
-	terra NodeT:genTexturePointwise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
+	-- Generates a texture image by intepreting the entire program graph rooted at this node for each pixel in the image.
+	terra NodeT:interpretPixelwise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
 		var outimg = self.imagePool:fetch(xres, yres)
 		var xrange = xhi - xlo
 		var yrange = yhi - ylo
@@ -59,9 +58,9 @@ Node = S.memoize(function(real, nchannels, GPU)
 	-- Evaluate the texture function over an entire image
 	inherit.purevirtual(NodeT, "evalImage", {uint,uint,real,real,real,real}->&image.Image(real,nchannels))
 
-	-- Generate a texture image from the graph rooted at this node, evaluating an entire image for
-	--    each stage in the graph.
-	terra NodeT:genTextureBlocked(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
+	-- Generates a texture image by interpreting the program graph rooted at this node one node at a time, generating
+	--    an entire image at each stage.
+	terra NodeT:interpretNodewise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
 		return self:evalImage(xres, yres, xlo, xhi, ylo, yhi)
 	end
 

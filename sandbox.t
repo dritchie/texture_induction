@@ -55,8 +55,8 @@ local p = qs.program(function()
 
 		var perlin = [PerlinNode(qs.real, GPU)].salloc():init(&impool, &gradients,
 			frequency, lacunarity, persistence, octaves)
-		var tex = perlin:genTexturePointwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
-		-- var tex = perlin:genTextureBlocked(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+		var tex = perlin:interpretPixelwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+		-- var tex = perlin:interpretNodewise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
 
 		qs.factor(-imMSE(tex, &targetImg) * FACTOR_WEIGHT)
 
@@ -93,8 +93,8 @@ report()
 -- 	var impool = [ImagePool(double, 1, GPU)].salloc():init()
 -- 	var perlin = [PerlinNode(double, GPU)].salloc():init(impool, &gradients,
 -- 													1.0, 3.0, 0.75, 6)
--- 	var tex = perlin:genTexturePointwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
--- 	-- var tex = perlin:genTextureBlocked(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+-- 	var tex = perlin:interpretPixelwise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+-- 	-- var tex = perlin:interpretNodewise(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
 -- 	[image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png")
 -- 	impool:release(tex)
 
