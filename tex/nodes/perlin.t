@@ -48,17 +48,18 @@ local PerlinNode = S.memoize(function(real, GPU)
 		self.octaves = oct
 	end
 
-	terra PerlinNode:eval(x: real, y: real)
-		x = x * self.frequency
-		y = y * self.frequency
+	PerlinNode.methods.eval = terra(x: real, y: real, gradients: &GradientTable(real),
+						  			frequency: real, lacunarity: real, persistence: real, octaves: uint)
+		x = x * frequency
+		y = y * frequency
 		var persist = real(1.0)
 		var value = real(0.0)
 
-		for octave=0,self.octaves do
-			value = value + (persist * [noise.gradientCoherent(real, GPU)](x, y, octave, self.gradients))
-			persist = persist * self.persistence
-			x = x * self.lacunarity
-			y = y * self.lacunarity
+		for octave=0,octaves do
+			value = value + (persist * [noise.gradientCoherent(real, GPU)](x, y, octave, gradients))
+			persist = persist * persistence
+			x = x * lacunarity
+			y = y * lacunarity
 		end
 
 		-- Transform value from (-1, 1) to (0, 1)
