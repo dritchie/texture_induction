@@ -29,8 +29,8 @@ end)
 
 -- Helper: Compute the gradient noise value an integer grid location,
 --    given the continuous location where noise will eventually be evaluated.
-local gradientNoise = S.memoize(function(real)
-	return terra(fx: real, fy: real, x: int, y: int, seed: int, grads: &GradientTable(real))
+local gradientNoise = S.memoize(function(real, GPU)
+	return terra(fx: real, fy: real, x: int, y: int, seed: int, grads: GradientTable(real, GPU))
 		-- Lookup into the gradient table using a random permutation of x,y
 		-- TODO: Try removing this and using the position to do direct lookup.
 		--    Might look bad, but it also could give us more control over
@@ -43,8 +43,8 @@ local gradientNoise = S.memoize(function(real)
 		index = index ^ (index >> SHIFT_NOISE_GEN)
 		-- Ensure all indices are in range
 		-- TODO: Try 'mod' instead to see what it does?
-		index = index and [GradientTable(real).N - 1]
-		var g = (@grads)[index]
+		index = index and [randTables.GRADIENT_TABLE_SIZE - 1]
+		var g = grads[index]
 		-- S.printf("%g, %g\n", g(0), g(1))
 
 		-- Take the dot product of this gradient with the vector between (fx,fy)
@@ -57,9 +57,9 @@ end)
 
 -- Compute coherent gradient noise at a point
 local gradientCoherentNoise = S.memoize(function(real, GPU)
-	local gradNoise = gradientNoise(real)
+	local gradNoise = gradientNoise(real, GPU)
 	local mlib = mathlib(GPU)
-	return terra(x: real, y: real, seed: int, grads: &GradientTable(real))
+	return terra(x: real, y: real, seed: int, grads: GradientTable(real, GPU))
 		-- Bound the input point within an integer grid cell
 		var x0 = int(mlib.floor(x))
 		var x1 = x0 + 1

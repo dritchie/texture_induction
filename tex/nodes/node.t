@@ -92,6 +92,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		escape
 			if GPU then
 				-- (For now) Can't generate an image at a resolution that exceeds the device's maximum block dimensions
+				-- TODO: Could switch to parallelizing over grids instead of blocks, but I don't think that's as efficient...
 				emit quote S.assert(xres <= cudaDeviceProps.maxThreadsDim[0] and yres <= cudaDeviceProps.maxThreadsDim[1]) end
 			end
 		end
@@ -285,7 +286,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 			return quote
 				var outimg = self.imagePool:fetch(xres, yres)
 				[inputTempsAssign]
-				K.kernel(outimg.data, xres, yres, outimg.pitch, xlo, xhi, ylo, yhi, [inputTempsData], [paramExps])
+				var cudaparams = terralib.CUDAParams { 1,1,1,  xres,yres,1,  0, nil }
+				K.kernel(&cudaparams, outimg.data, xres, yres, outimg.pitch, xlo, xhi, ylo, yhi, [inputTempsData], [paramExps])
 				[freeInputResults]
 			in
 				outimg

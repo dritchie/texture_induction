@@ -28,7 +28,7 @@ local PerlinNode = S.memoize(function(real, GPU)
 
 	local struct PerlinNode(S.Object)
 	{
-		gradients: &GradientTable(real),
+		gradients: GradientTable(real, GPU),
 		frequency: real,
 		lacunarity: real,
 		persistence: real,
@@ -38,7 +38,7 @@ local PerlinNode = S.memoize(function(real, GPU)
 	ParentNodeType.Metatype(PerlinNode)
 	inherit.dynamicExtend(ParentNodeType, PerlinNode)
 
-	terra PerlinNode:__init(imPool: &ImagePool(real, 1, GPU), grads: &GradientTable(real),
+	terra PerlinNode:__init(imPool: &ImagePool(real, 1, GPU), grads: GradientTable(real, GPU),
 							freq: real, lac: real, pers: real, oct: uint) : {}
 		ParentNodeType.__init(self, imPool)
 		self.gradients = grads
@@ -48,7 +48,7 @@ local PerlinNode = S.memoize(function(real, GPU)
 		self.octaves = oct
 	end
 
-	PerlinNode.methods.eval = terra(x: real, y: real, gradients: &GradientTable(real),
+	PerlinNode.methods.eval = terra(x: real, y: real, gradients: GradientTable(real, GPU),
 						  			frequency: real, lacunarity: real, persistence: real, octaves: uint)
 		x = x * frequency
 		y = y * frequency
