@@ -5,6 +5,7 @@ local inherit = terralib.require("utils.inheritance")
 local ImagePool = terralib.require("tex.imagePool")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local curt = terralib.require("utils.cuda.curt")
+local custd = terralib.require("utils.cuda.custd")
 
 
 -- Some random utilities that this file happens to need
@@ -92,9 +93,9 @@ Node = S.memoize(function(real, nchannels, GPU)
 	terra NodeT:interpretNodewise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
 		escape
 			if GPU then
-				-- (For now) Can't generate an image at a resolution that exceeds the device's maximum block dimensions
-				-- TODO: Could switch to parallelizing over grids instead of blocks, but I don't think that's as efficient...
-				emit quote S.assert(xres <= cudaDeviceProps.maxThreadsDim[0] and yres <= cudaDeviceProps.maxThreadsDim[1]) end
+				-- We compute one scanline per thread block, so yres must be less than the maximum block dimension, and
+				--    xres must be less than the maximum thread dimension.
+				emit quote S.assert(yres <= cudaDeviceProps.maxGridSize[0] and xres <= cudaDeviceProps.maxThreadsDim[0]) end
 			end
 		end
 		return self:evalImage(xres, yres, xlo, xhi, ylo, yhi)
@@ -265,8 +266,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 			end
 			local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint64, xlo: real, xhi: real, ylo: real, yhi: real,
 							  [inputSyms], [paramSyms])
-				var xi = cudalib.nvvm_read_ptx_sreg_tid_x()
-				var yi = cudalib.nvvm_read_ptx_sreg_tid_y()
+				var xi = custd.threadIdx.x()
+				var yi = custd.blockIdx.x()
 				var xt = xi / real(width)
 				var yt = yi / real(height)
 				var x = lerp(xlo, xhi, xt)
@@ -287,7 +288,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 			return quote
 				var outimg = self.imagePool:fetch(xres, yres)
 				[inputTempsAssign]
-				var cudaparams = terralib.CUDAParams { 1,1,1,  xres,yres,1,  0, nil }
+				var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
 				K.kernel(&cudaparams, outimg.data, xres, yres, outimg.pitch, xlo, xhi, ylo, yhi, [inputTempsData], [paramExps])
 				[freeInputResults]
 			in

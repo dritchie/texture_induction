@@ -28,7 +28,10 @@ local const_gradients = S.memoize(function(real, GPU)
 		end
 		escape
 			if GPU then
-				emit quote curt.cudaMemcpy(gradients, grads, GRADIENT_TABLE_SIZE*sizeof(Vec2), 1) end
+				emit quote
+					curt.cudaMalloc([&&opaque](&gradients), GRADIENT_TABLE_SIZE*sizeof(Vec2))
+					curt.cudaMemcpy(gradients, grads, GRADIENT_TABLE_SIZE*sizeof(Vec2), 1)
+				end
 			else
 				emit quote gradients = grads end
 			end

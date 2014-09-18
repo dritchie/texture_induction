@@ -42,10 +42,8 @@ local gradientNoise = S.memoize(function(real, GPU)
 		) and 0xffffffff	-- Not sure why this is necessary...?
 		index = index ^ (index >> SHIFT_NOISE_GEN)
 		-- Ensure all indices are in range
-		-- TODO: Try 'mod' instead to see what it does?
 		index = index and [randTables.GRADIENT_TABLE_SIZE - 1]
 		var g = grads[index]
-		-- S.printf("%g, %g\n", g(0), g(1))
 
 		-- Take the dot product of this gradient with the vector between (fx,fy)
 		--    and (x,y)
