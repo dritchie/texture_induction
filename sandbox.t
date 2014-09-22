@@ -42,7 +42,7 @@ local p = qs.program(function()
 
 	-- TODO: CUDA parallel reduction (the computation is almost negligible, actually, but all
 	--    the device->host memcpy's that we have to do when generating textures on the GPU
-	--    are cutting down the performance increase from ~6x to 3x)
+	--    are cutting down the performance increase by about 2x)
 	local mlib = mathlib(false)
 	local terra imMSE(im1: &Image, im2: &Image)
 		var sqerr = qs.real(0.0)
@@ -66,9 +66,10 @@ local p = qs.program(function()
 			frequency, lacunarity, persistence, octaves)
 		perlin:setInputCoordNode(program:getInputCoordNode())
 		program:setOuputNode(perlin)
+		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
 
-		-- var tex = program:interpretScalar(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
-		var tex = program:interpretVector(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+		-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
+		program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
 
 		escape
 			if not GPU then
@@ -81,7 +82,7 @@ local p = qs.program(function()
 			end
 		end
 
-		program:clearOuputRegisters()
+		registers.grayscaleRegisters:release(tex)
 		return frequency, lacunarity, persistence, octaves
 	end
 
@@ -119,8 +120,9 @@ report()
 -- 													1.0, 3.0, 0.75, 6)
 -- 	perlin:setInputCoordNode(program:getInputCoordNode())
 -- 	program:setOuputNode(perlin)
--- 	-- var tex = program:interpretScalar(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
--- 	var tex = program:interpretVector(IMG_SIZE, IMG_SIZE, 0.0, 1.0, 0.0, 1.0)
+-- 	var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
+-- 	-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
+-- 	program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
 -- 	escape
 -- 		if not GPU then
 -- 			emit quote [image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png") end
@@ -132,7 +134,7 @@ report()
 -- 			end
 -- 		end
 -- 	end
--- 	program:clearOuputRegisters()
+-- 	registers.grayscaleRegisters:release(tex)
 
 -- end
 -- test()

@@ -64,6 +64,11 @@ local CUDAImage = S.memoize(function(real, nchannels)
 		end
 	end
 
+	terra CUDAImage:memcpy(other: &CUDAImage)
+		self:resize(other.width, other.height)
+		curt.cudaMemcpy2D(self.data, self.pitch, other.data, other.pitch, sizeof(Color)*other.width, other.height, 3)
+	end
+
 	return CUDAImage
 
 end)

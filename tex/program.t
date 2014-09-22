@@ -2,6 +2,8 @@ local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local Node = terralib.require("tex.nodes.node")
 local Registers = terralib.require("tex.registers")
+local image = terralib.require("utils.image")
+local CUDAImage = terralib.require("utils.cuda.cuimage")
 local CoordSourceNode = terralib.require("tex.nodes.coordSource")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
@@ -42,6 +44,13 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 			nOutChannels))
 	end
 
+	local Image
+	if GPU then
+		Image = CUDAImage(real, nOutChannels)
+	else
+		Image = image.Image(real, nOutChannels)
+	end
+
 	local struct Program(S.Object)
 	{
 		registers: &Registers(real, GPU),
@@ -57,48 +66,42 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 		self.registers = registers
 	end
 
-	-- Macro that returns the register that corresponds to this program's output type
-	Program.methods.outputRegisters = macro(function(self)
-		if isGrayscale then
-			return `self.registers.grayscaleRegisters
-		elseif isColor then
-			return `self.registers.colorRegisters
-		end
-	end)
-
 	-- Retrieve a pointer to the coord source node for this program.
 	terra Program:getInputCoordNode() return &self.inputCoordNode end
 
 	-- Output node must be set before the program can be executed.
 	terra Program:setOuputNode(outnode: &Node(real, nOutChannels, GPU))
+		if self.outputNode ~= nil then
+			self.outputNode:decrementOutputCount()
+		end
 		self.outputNode = outnode
+		outnode:incrementOutputCount()
 	end
 
 	-- The scalar interpreter
 	if not GPU then
-		terra Program:interpretScalar(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
-			var outimg = self:outputRegisters():fetch(xres, yres)
+		terra Program:interpretScalar(outimg: &Image, xlo: real, xhi: real, ylo: real, yhi: real)
 			var xrange = xhi - xlo
 			var yrange = yhi - ylo
-			var xdelta = xrange / xres
-			var ydelta = yrange / yres
+			var xdelta = xrange / outimg.width
+			var ydelta = yrange / outimg.height
 			var yval = ylo
-			for y=0,yres do
+			for y=0,outimg.height do
 				var xval = xlo
-				for x=0,xres do
+				for x=0,outimg.width do
 					self.inputCoordNode:setScalarCoord(xval, yval)
 					outimg(x,y) = self.outputNode:evalScalar()
 					xval = xval + xdelta
 				end
 				yval = yval + ydelta
 			end
-			-- Caller is responsible for releasing the output image (e.g. via self:clearOutputRegisters).
-			return outimg
 		end
 	end
 
 	-- The vector interpreter
-	terra Program:interpretVector(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
+	terra Program:interpretVector(outimg: &Image, xlo: real, xhi: real, ylo: real, yhi: real)
+		var xres = outimg.width
+		var yres = outimg.height
 		var coords = self.registers.coordinateRegisters:fetch(xres, yres)
 		-- Fill in coords
 		-- TODO: If we had a caching system for intermediate ouputs (see the TODO in node.t), then
@@ -122,7 +125,7 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 				end
 			end
 			-- GPU: CUDA kernel
-			-- This is totally overkill, but it's actually convenient because coords is device-resident,
+			-- This is kind of overkill, but it's actually convenient because coords is device-resident,
 			--    so filling it in with a kernel is easier.
 			else
 				local lerp = macro(function(lo, hi, t) return `(1.0-t)*lo + t*hi end)
@@ -147,16 +150,10 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 			end
 		end
 		self.inputCoordNode:setVectorCoords(coords)
-		var outimg = self.outputNode:evalVector()
+		var outtmp = self.outputNode:evalVector()
 		self.registers.coordinateRegisters:release(coords)
-		-- Caller is responsible for releasing the output image (e.g. via self:clearOutputRegisters).
-		return outimg
-	end
-
-	-- The output of program when executed under interpretation is an image from the pool of output
-	--    registers. This method clears those registers for future use.
-	terra Program:clearOuputRegisters()
-		self:outputRegisters():releaseAll()
+		outimg:memcpy(outtmp)
+		self.outputNode:releaseVectorOutput()
 	end
 
 

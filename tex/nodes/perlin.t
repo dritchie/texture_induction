@@ -42,7 +42,8 @@ local PerlinNode = S.memoize(function(real, GPU)
 
 	terra PerlinNode:__init(registers: &Registers(real, GPU), grads: GradientTable(real, GPU),
 							freq: real, lac: real, pers: real, oct: uint) : {}
-		ParentNodeType.__init(self, registers)
+		ParentNodeType.__init(self, registers) -- *must* be called
+		ParentNodeType.initInputs(self)        -- *must* be called
 		self.gradients = grads
 		self.frequency = freq
 		self.lacunarity = lac

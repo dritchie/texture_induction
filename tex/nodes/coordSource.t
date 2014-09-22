@@ -46,15 +46,15 @@ local CoordSourceNode = S.memoize(function(real, GPU)
 		self.vectorCoords = coords
 	end
 
-	terra CoordSourceNode:evalScalar() : CoordScalarType
+	terra CoordSourceNode:evalScalarImpl() : CoordScalarType
 		return self.scalarCoord
 	end
-	inherit.virtual(CoordSourceNode, "evalScalar")
+	inherit.virtual(CoordSourceNode, "evalScalarImpl")
 
-	terra CoordSourceNode:evalVector() : &CoordVectorType
+	terra CoordSourceNode:evalVectorImpl() : &CoordVectorType
 		return self.vectorCoords
 	end
-	inherit.virtual(CoordSourceNode, "evalVector")
+	inherit.virtual(CoordSourceNode, "evalVectorImpl")
 
 	return CoordSourceNode
 

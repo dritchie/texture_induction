@@ -38,13 +38,20 @@ Node = S.memoize(function(real, nchannels, GPU)
 	local struct NodeT(S.Object)
 	{
 		-- 'Registers' used to store vector interpreter intermediates
-		imagePool: &ImagePool(real, nchannels, GPU)
+		imagePool: &ImagePool(real, nchannels, GPU),
+
+		-- Bookkeeping for intermediate result caching
+		scalarResult: OutputScalarType,
+		vectorResult: &OutputVectorType,
+		nOutputs: uint,
+		nOutputsRemaining: uint
 	}
 
 	NodeT.OutputScalarType = OutputScalarType
 	NodeT.OutputVectorType = OutputVectorType
 
 	terra NodeT:__init(registers: &Registers(real, GPU))
+		self:initmembers()
 		if registers == nil then
 			self.imagePool = nil
 		else
@@ -58,6 +65,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 				end
 			end
 		end
+		self.nOutputs = 0
+		self.nOutputsRemaining = 0
 	end
 
 	-- Destructor does nothing, but it's virtual so that if subclass
@@ -67,16 +76,55 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	-- Scalar interpretation is only possible under CPU execution
 	if not GPU then
-		inherit.purevirtual(NodeT, "evalScalar", {}->OutputScalarType)
+		inherit.purevirtual(NodeT, "evalScalarImpl", {}->OutputScalarType)
+		terra NodeT:evalScalar()
+			-- If this is the first time we're evaluating this node on a run of the
+			--    program (i.e. no outputs have yet requested this result), then
+			--    compute and cache the result
+			if self.nOutputsRemaining == self.nOutputs then
+				self.scalarResult = self:evalScalarImpl()
+			end
+			-- Decrement the output count. If we're at zero (i.e. all outputs have been
+			--    accounted for), then reset the remaining output count to prepare for
+			--    the next run of the program.
+			self.nOutputsRemaining = self.nOutputsRemaining - 1
+			if self.nOutputsRemaining == 0 then
+				self.nOutputsRemaining = self.nOutputs
+			end
+			return self.scalarResult
+		end
 	end
 
-	inherit.purevirtual(NodeT, "evalVector", {}->&OutputVectorType)
+	inherit.purevirtual(NodeT, "evalVectorImpl", {}->&OutputVectorType)
+	terra NodeT:evalVector()
+		if self.nOutputsRemaining == self.nOutputs then
+			self.vectorResult = self:evalVectorImpl()
+		end
+		self.nOutputsRemaining = self.nOutputsRemaining - 1
+		return self.vectorResult
+	end
 
 	-- Release a vector output previously computed by this node
-	terra NodeT:releaseOutput(outimg: &OutputVectorType)
-		if self.imagePool ~= nil then
-			self.imagePool:release(outimg)
+	terra NodeT:releaseVectorOutput()
+		-- Only release if all outputs are finished with this result
+		if self.nOutputsRemaining == 0 then
+			self.nOutputsRemaining = self.nOutputs
+			if self.imagePool ~= nil then
+				self.imagePool:release(self.vectorResult)
+			end
 		end
+	end
+
+	-- Register that this node has one more additional output
+	terra NodeT:incrementOutputCount()
+		self.nOutputs = self.nOutputs + 1
+		self.nOutputsRemaining = self.nOutputs
+	end
+
+	-- Register that this node has one fewer output
+	terra NodeT:decrementOutputCount()
+		self.nOutputs = self.nOutputs - 1
+		self.nOutputsRemaining = self.nOutputs
 	end
 
 
@@ -95,7 +143,11 @@ Node = S.memoize(function(real, nchannels, GPU)
 		end
 		-- Setter
 		nodeClass.methods.setInputCoordNode = terra(self: &nodeClass, coord: &Node(real, 2, GPU))
+			if self.inputCoordNode ~= nil then
+				self.inputCoordNode:decrementOutputCount()
+			end
 			self.inputCoordNode = coord
+			coord:incrementOutputCount()
 		end
 	end
 
@@ -120,7 +172,12 @@ Node = S.memoize(function(real, nchannels, GPU)
 			nodeClass.methods[string.format("getInputNode%d",i)] = getter
 			-- Setter
 			local setter = terra(self: &nodeClass, input: typ)
+
+				if self.[string.format("inputNode%d",i)] ~= nil then
+					self.[string.format("inputNode%d",i)]:decrementOutputCount()
+				end
 				self.[string.format("inputNode%d",i)] = input
+				input:incrementOutputCount()
 			end
 			setter:setinlined(true)
 			nodeClass.methods[string.format("setInputNode%d",i)] = setter
@@ -202,10 +259,6 @@ Node = S.memoize(function(real, nchannels, GPU)
 		end
 	end
 
-	-- TODO: Instead of computing and throwing away outputs, implement a caching system for intermediates to
-	--    reduce redundant computation when nodes have multiple outputs? (This is basically just
-	--    common subexpression elimination, which we hope the compiled version will do for us)
-
 	-- Generate code for the virtual 'evalScalar' method
 	local genEvalScalar = macro(function(self)
 		local nodeClass = self:gettype().type
@@ -230,6 +283,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 			local function inputTempsXY(x,y)
 				return inputTemps:map(function(img) return `img(x,y) end)
 			end
+			local releaseInputTemps = inputs:map(function(e) return `self.[e.field]:releaseVectorOutput() end)
 			return quote
 				[inputTempsAssign]
 				var xres = [inputTemps[1]].width
@@ -240,12 +294,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 						outimg(x,y) = [ensureVecEval(`self:evalSelf([inputTempsXY(x, y)]), nodeClass)]
 					end
 				end
-				-- Release intermediates
-				escape
-					for i,e in ipairs(inputs) do
-						emit `self.[e.field]:releaseOutput([inputTemps[i]])
-					end
-				end
+				[releaseInputTemps]
 			in
 				outimg
 			end
@@ -253,6 +302,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 	else
 		genEvalVector = macro(function(self)
 			local nodeClass = self:gettype().type
+			assert(nodeClass:getmethod("eval"),
+				string.format("Texture node type %s must have an eval method", tostring(nodeClass)))
 			-- We generate and compile a CUDA kernel, then return a quote that calls that kernel.
 			local inputs = getInputEntries(nodeClass)
 			local inputSyms = inputs:map(function(e) return symbol(&e.type.type.OutputScalarType) end)
@@ -280,6 +331,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 			local inputTempsData = inputTemps:map(function(img) return `img.data end)
 			local inputTempsPitch = inputTemps:map(function(img) return `img.pitch end)
 			local paramExps = params:map(function(e) return `self.[e.field] end)
+			local releaseInputTemps = inputs:map(function(e) return `self.[e.field]:releaseVectorOutput() end)
 			return quote
 				[inputTempsAssign]
 				var xres = [inputTemps[1]].width
@@ -289,17 +341,25 @@ Node = S.memoize(function(real, nchannels, GPU)
 				-- TODO: If we implement caching and move that logic out of Program, we might need to reinstate the assert here.
 				var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
 				K.kernel(&cudaparams, outimg.data, outimg.pitch, [inputTempsData], [inputTempsPitch], [paramExps])
-				-- Release intermediates
-				escape
-					for i,e in ipairs(inputs) do
-						emit `self.[e.field]:releaseOutput([inputTemps[i]])
-					end
-				end
+				[releaseInputTemps]
 			in
 				outimg
 			end
 		end)
 	end
+
+	-- Initializes all of an object's input node pointers to nil. Subclasses must call this in their __init method.
+	NodeT.methods.initInputs = macro(function(self)
+		local nodeClass = self:gettype().type
+		local inputs = getInputEntries(nodeClass)
+		return quote
+			escape
+				for _,e in ipairs(inputs) do
+					emit quote self.[e.field] = nil end
+				end
+			end
+		end
+	end)
 
 	function NodeT.Metatype(nodeClass)
 
@@ -308,16 +368,16 @@ Node = S.memoize(function(real, nchannels, GPU)
 		addEvalSelf(nodeClass)
 
 		if not GPU then
-			terra nodeClass:evalScalar() : OutputScalarType
+			terra nodeClass:evalScalarImpl() : OutputScalarType
 				return genEvalScalar(self)
 			end
-			inherit.virtual(nodeClass, "evalScalar")
+			inherit.virtual(nodeClass, "evalScalarImpl")
 		end
 
-		terra nodeClass:evalVector() : &OutputVectorType
+		terra nodeClass:evalVectorImpl() : &OutputVectorType
 			return genEvalVector(self)
 		end
-		inherit.virtual(nodeClass, "evalVector")
+		inherit.virtual(nodeClass, "evalVectorImpl")
 
 	end
 

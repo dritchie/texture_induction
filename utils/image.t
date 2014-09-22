@@ -189,6 +189,12 @@ local Image = S.memoize(function(dataType, numChannels)
 		end
 	end
 
+	local str = terralib.includec("string.h")
+	terra ImageT:memcpy(other: &ImageT)
+		self:resize(other.width, other.height)
+		str.memcpy(self.data, other.data, self.width*self.height*sizeof(Color))
+	end
+
 	terra ImageT:__copy(other: &ImageT)
 		self.width = other.width
 		self.height = other.height
