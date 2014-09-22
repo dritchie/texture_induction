@@ -151,9 +151,9 @@ Node = S.memoize(function(real, nchannels, GPU)
 	function NodeT.defineInputs(nodeClass, numchannelsList)
 		-- Throw an error if the class hasn't had coordinate input added to it; this must be added before
 		--    any other inputs
-		if not nodeClass.methods.setCoordInputNode then
+		if not nodeClass.methods.setInputCoordNode then
 			error(string.format("%s.defineInputs called on node class %s which is not using the standard metatype.",
-				tostring(NodeT)))
+				tostring(NodeT, nodeClass)))
 		end
 		for i,nchannels in ipairs(numchannelsList) do
 			local typ = &Node(real, nchannels, GPU)
@@ -383,8 +383,80 @@ end)
 
 
 
+-- Make a node subclass from an eval function template
+local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
+	return S.memoize(function(...)
+		local args = {...}
+		local evalFn = fnTemplate(...)
+		local evalFnType = evalFn:gettype()
+		assert(inputNChannelsList ~= nil,
+			"makeNodeFromFunc: number of channels for each input was not provided.")
 
-return Node
+		-- Args are either
+		--    * real, nchannels, GPU
+		--    * real, GPU
+		-- depending on whether the node supports different channel numbers
+		local real = args[1]
+		local GPU = (#args == 3 and args[3] or args[2])
+		local nchannels
+		if #args == 3 then
+			nchannels = args[2]
+		else
+			local isGrayscale = (evalFnType.returntype == real)
+			local isCoordinate = (evalFnType.returntype == Vec(real, 2, GPU))
+			local isColor = (evalFnType.returntype == Vec(real, 4, GPU))
+			nchannels = (isGrayscale and 1 or (isCoordinate and 2 or (isColor and 4)))
+		end
+
+		-- Set up struct
+		local struct NodeClass(S.Object) {}
+		local ParentNodeType = Node(real, nchannels, GPU)
+		inherit.dynamicExtend(ParentNodeType, NodeClass)
+
+		NodeClass.methods.eval = evalFn
+
+		-- Add struct entries for each parameter. We figure out the parameters
+		--    by inspecting the parameter list of the eval function. If the node has
+		--    n inputs, then the first n+1 eval parameters correspond to the coordinate +
+		--    these inputs. The remaining parameters are the parameters we're looking for
+		local index = 1
+		local paramSyms = terralib.newlist()
+		for i=#inputNChannelsList+2,#evalFnType.parameters do
+			local paramtype = evalFnType.parameters[i]
+			NodeClass.entries:insert({field=string.format("param%d",index), type=paramtype})
+			paramSyms:insert(symbol(paramtype))
+			index = index + 1
+		end
+
+		-- Now that we have the parameters as struct entries, we can apply the metatype
+		ParentNodeType.Metatype(NodeClass)
+
+		-- With the metatype applied, we can define the inputs to the node
+		ParentNodeType.defineInputs(NodeClass, inputNChannelsList)
+
+		-- Finally, make the class __init method
+		terra NodeClass:__init(registers: &Registers(real, GPU), [paramSyms])
+			ParentNodeType.__init(self, registers) -- *must* be called (to init self.imagePool)
+			ParentNodeType.initInputs(self)		   -- *must* be called (to init input node pointers to nil)
+			escape
+				for i,ps in ipairs(paramSyms) do
+					emit quote self.[string.format("param%d",i)] = ps end
+				end
+			end
+		end
+
+		return NodeClass
+	end)
+end
+
+
+
+
+return
+{
+	Node = Node,
+	makeNodeFromFunc = makeNodeFromFunc
+}
 
 
 

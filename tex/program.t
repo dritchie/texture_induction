@@ -1,6 +1,6 @@
 local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
-local Node = terralib.require("tex.nodes.node")
+local Node = terralib.require("tex.nodes.node").Node
 local image = terralib.require("utils.image")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local Registers = terralib.require("tex.registers")
