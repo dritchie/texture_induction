@@ -1,12 +1,11 @@
 local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local Node = terralib.require("tex.nodes.node")
-local Registers = terralib.require("tex.registers")
 local image = terralib.require("utils.image")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
+local Registers = terralib.require("tex.registers")
 local CoordSourceNode = terralib.require("tex.nodes.coordSource")
 local curt = terralib.require("utils.cuda.curt")
-local custd = terralib.require("utils.cuda.custd")
 
 
 -- Code later on makes use of some CUDA device properties, so we'll
@@ -53,17 +52,14 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 
 	local struct Program(S.Object)
 	{
-		registers: &Registers(real, GPU),
-
 		-- The input and output nodes
 		inputCoordNode: CoordSourceNode(real, GPU),
 		outputNode: &Node(real, nOutChannels, GPU)
 	}
 
 	terra Program:__init(registers: &Registers(real, GPU))
-		self:initmembers()
+		self.inputCoordNode:init(registers)
 		self.outputNode = nil
-		self.registers = registers
 	end
 
 	-- Retrieve a pointer to the coord source node for this program.
@@ -102,56 +98,17 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 	terra Program:interpretVector(outimg: &Image, xlo: real, xhi: real, ylo: real, yhi: real)
 		var xres = outimg.width
 		var yres = outimg.height
-		var coords = self.registers.coordinateRegisters:fetch(xres, yres)
-		-- Fill in coords
-		-- TODO: If we had a caching system for intermediate ouputs (see the TODO in node.t), then
-		--    this could be moved to coordSource.t without loss of efficiency.
 		escape
-			-- CPU: Sequential loop
-			if not GPU then emit quote
-				var xrange = xhi - xlo
-				var yrange = yhi - ylo
-				var xdelta = xrange / xres
-				var ydelta = yrange / yres
-				var yval = ylo
-				for y=0,yres do
-					var xval = xlo
-					for x=0,xres do
-						coords(x,y)(0) = xval
-						coords(x,y)(1) = yval
-						xval = xval + xdelta
-					end
-					yval = yval + ydelta
-				end
-			end
-			-- GPU: CUDA kernel
-			-- This is kind of overkill, but it's actually convenient because coords is device-resident,
-			--    so filling it in with a kernel is easier.
-			else
-				local lerp = macro(function(lo, hi, t) return `(1.0-t)*lo + t*hi end)
-				local terra kernel(output: &Vec(real, 2, GPU), xres: uint, yres: uint, pitch: uint64,
-								   xlo: real, xhi: real, ylo: real, yhi: real)
-					var xi = custd.threadIdx.x()
-					var yi = custd.blockIdx.x()
-					var xt = xi/real(xres)
-					var yt = yi/real(yres)
-					var outptr = [&Vec(real, 2, GPU)]( [&uint8](output) + yi*pitch ) + xi
-					(@outptr)(0) = lerp(xlo, xhi, xt)
-					(@outptr)(1) = lerp(ylo, yhi, yt)
-				end
-				local K = terralib.cudacompile({kernel=kernel}, false)
+			if GPU then
 				emit quote
 					-- We compute one scanline per thread block, so yres must be less than the maximum block dimension, and
 					--    xres must be less than the maximum thread dimension.
 					S.assert(yres <= cudaDeviceProps.maxGridSize[0] and xres <= cudaDeviceProps.maxThreadsDim[0])
-					var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
-					K.kernel(&cudaparams, coords.data, xres, yres, coords.pitch, xlo, xhi, ylo, yhi)
 				end
 			end
 		end
-		self.inputCoordNode:setVectorCoords(coords)
+		self.inputCoordNode:setVectorCoordRange(xres, yres, xlo, xhi, ylo, yhi)
 		var outtmp = self.outputNode:evalVector()
-		self.registers.coordinateRegisters:release(coords)
 		outimg:memcpy(outtmp)
 		self.outputNode:releaseVectorOutput()
 	end

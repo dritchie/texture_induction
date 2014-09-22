@@ -52,17 +52,14 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	terra NodeT:__init(registers: &Registers(real, GPU))
 		self:initmembers()
-		if registers == nil then
-			self.imagePool = nil
-		else
-			escape
-				if isGrayscale then
-					emit quote self.imagePool = &registers.grayscaleRegisters end
-				elseif isCoordinate then
-					emit quote self.imagePool = &registers.coordinateRegisters end
-				elseif isColor then
-					emit quote self.imagePool = &registers.colorRegisters end
-				end
+		S.assert(registers ~= nil)
+		escape
+			if isGrayscale then
+				emit quote self.imagePool = &registers.grayscaleRegisters end
+			elseif isCoordinate then
+				emit quote self.imagePool = &registers.coordinateRegisters end
+			elseif isColor then
+				emit quote self.imagePool = &registers.colorRegisters end
 			end
 		end
 		self.nOutputs = 0
@@ -109,9 +106,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		-- Only release if all outputs are finished with this result
 		if self.nOutputsRemaining == 0 then
 			self.nOutputsRemaining = self.nOutputs
-			if self.imagePool ~= nil then
-				self.imagePool:release(self.vectorResult)
-			end
+			self.imagePool:release(self.vectorResult)
 		end
 	end
 
