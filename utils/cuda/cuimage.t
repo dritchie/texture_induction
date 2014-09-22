@@ -35,8 +35,8 @@ local CUDAImage = S.memoize(function(real, nchannels)
 	end
 
 	-- Copy from a CPU image
-	terra CUDAImage:__init(img: &image.Image(real, nchannels)) : {}
-		self:__init(img.width, img.height)
+	terra CUDAImage:fromHostImg(img: &image.Image(real, nchannels))
+		self:resize(img.width, img.height)
 		var s = sizeof(Color)
 		curt.cudaMemcpy2D(self.data, self.pitch, img.data, s*img.width, s*img.width, img.height, 1)
 	end
@@ -46,6 +46,11 @@ local CUDAImage = S.memoize(function(real, nchannels)
 		img:resize(self.width, self.height)
 		var s = sizeof(Color)
 		curt.cudaMemcpy2D(img.data, s*img.width, self.data, self.pitch, s*self.width, self.height, 2)
+	end
+
+	terra CUDAImage:__init(img: &image.Image(real, nchannels)) : {}
+		self:__init(img.width, img.height)
+		self:fromHostImg(img)
 	end
 
 	terra CUDAImage:__destruct()

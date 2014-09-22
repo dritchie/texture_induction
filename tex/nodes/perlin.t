@@ -2,7 +2,7 @@ local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local image = terralib.require("utils.image")
 local inherit = terralib.require("utils.inheritance")
-local ImagePool = terralib.require("tex.imagePool")
+local Registers = terralib.require("tex.registers")
 local randTables = terralib.require("tex.randTables")
 local Node = terralib.require("tex.nodes.node")
 local noise = terralib.require("tex.noise")
@@ -23,6 +23,8 @@ local GradientTable = randTables.GradientTable
 -- Perlin noise texture node
 local PerlinNode = S.memoize(function(real, GPU)
 
+	local Coord = Vec(real, 2, GPU)
+
 	-- IMPORTANT: The perisistance parameter should be less than 1 to keep
 	--    the output of this node in the range (0, 1)
 
@@ -35,12 +37,12 @@ local PerlinNode = S.memoize(function(real, GPU)
 		octaves: uint
 	}
 	local ParentNodeType = Node(real, 1, GPU)
-	ParentNodeType.Metatype(PerlinNode)
 	inherit.dynamicExtend(ParentNodeType, PerlinNode)
+	ParentNodeType.Metatype(PerlinNode)
 
-	terra PerlinNode:__init(imPool: &ImagePool(real, 1, GPU), grads: GradientTable(real, GPU),
+	terra PerlinNode:__init(registers: &Registers(real, GPU), grads: GradientTable(real, GPU),
 							freq: real, lac: real, pers: real, oct: uint) : {}
-		ParentNodeType.__init(self, imPool)
+		ParentNodeType.__init(self, registers)
 		self.gradients = grads
 		self.frequency = freq
 		self.lacunarity = lac
@@ -48,8 +50,10 @@ local PerlinNode = S.memoize(function(real, GPU)
 		self.octaves = oct
 	end
 
-	PerlinNode.methods.eval = terra(x: real, y: real, gradients: GradientTable(real, GPU),
+	PerlinNode.methods.eval = terra(coord: Coord, gradients: GradientTable(real, GPU),
 						  			frequency: real, lacunarity: real, persistence: real, octaves: uint)
+		var x = coord(0)
+		var y = coord(1)
 		x = x * frequency
 		y = y * frequency
 		var persist = real(1.0)

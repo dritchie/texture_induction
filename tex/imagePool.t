@@ -53,9 +53,21 @@ local ImagePool = S.memoize(function(real, nchannels, GPU)
 		self.freeStack:insert(img)
 	end
 
+	-- Release all images allocated from this pool back to this pool for further use.
+	terra ImagePool:releaseAll()
+		self.freeStack:clear()
+		for img in self.images do
+			self.freeStack:insert(img)
+		end
+	end
+
 	return ImagePool
 
 end)
 
 
 return ImagePool
+
+
+
+

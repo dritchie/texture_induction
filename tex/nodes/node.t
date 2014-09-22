@@ -3,29 +3,11 @@ local Vec = terralib.require("utils.linalg.vec")
 local image = terralib.require("utils.image")
 local inherit = terralib.require("utils.inheritance")
 local ImagePool = terralib.require("tex.imagePool")
+local Registers = terralib.require("tex.registers")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
 
-
--- Some random utilities that this file happens to need
-
-local function stringStartsWith(str, prefix)
-   return string.sub(str, 1, string.len(prefix)) == prefix
-end
-
-local lerp = macro(function(lo, hi, t)
-	return `(1.0-t)*lo + t*hi
-end)
-
-local terra getCUDADeviceProps()
-	var devid : int
-	curt.cudaGetDevice(&devid)
-	var props : curt.cudaDeviceProp
-	curt.cudaGetDeviceProperties(&props, devid)
-	return props
-end
-local cudaDeviceProps = getCUDADeviceProps()
 
 
 
@@ -35,24 +17,47 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	-- IMPORTANT: All output channels of all nodes should always be in the range (0, 1)
 
-	local Image
-	if GPU then
-		Image = CUDAImage(real, nchannels)
-	else
-		Image = image.Image(real, nchannels)
+	-- We support grayscale, color, and coordinate nodes.
+	local isGrayscale = (nchannels == 1)
+	local isCoordinate = (nchannels == 2)
+	local isColor = (nchannels == 4)
+	if not (isGrayscale or isCoordinate or isColor) then
+		error(string.format("Node: nchannels was %s. Supported values are 1 (grayscale), 2 (coordinate), and 4 (color)",
+			nchannels))
 	end
 
-	local OutputType = Vec(real, nchannels, GPU)
+	-- Define output types for scalar and vector execution
+	local OutputScalarType = Vec(real, nchannels, GPU)
+	local OutputVectorType
+	if GPU then
+		OutputVectorType = CUDAImage(real, nchannels)
+	else
+		OutputVectorType = image.Image(real, nchannels)
+	end
 
 	local struct NodeT(S.Object)
 	{
+		-- 'Registers' used to store vector interpreter intermediates
 		imagePool: &ImagePool(real, nchannels, GPU)
 	}
-	NodeT.OutputType = OutputType
-	NodeT.ImageType = Image
 
-	terra NodeT:__init(impool: &ImagePool(real, nchannels, GPU))
-		self.imagePool = impool
+	NodeT.OutputScalarType = OutputScalarType
+	NodeT.OutputVectorType = OutputVectorType
+
+	terra NodeT:__init(registers: &Registers(real, GPU))
+		if registers == nil then
+			self.imagePool = nil
+		else
+			escape
+				if isGrayscale then
+					emit quote self.imagePool = &registers.grayscaleRegisters end
+				elseif isCoordinate then
+					emit quote self.imagePool = &registers.coordinateRegisters end
+				elseif isColor then
+					emit quote self.imagePool = &registers.colorRegisters end
+				end
+			end
+		end
 	end
 
 	-- Destructor does nothing, but it's virtual so that if subclass
@@ -60,72 +65,70 @@ Node = S.memoize(function(real, nchannels, GPU)
 	terra NodeT:__destruct() : {} end
 	inherit.virtual(NodeT, "__destruct")
 
-	-- (Pointwise interpretation is only possible under CPU execution)
+	-- Scalar interpretation is only possible under CPU execution
 	if not GPU then
-		-- Evaluate the texture function represented by this NodeT at the point (x,y)
-		inherit.purevirtual(NodeT, "evalPoint", {real,real}->OutputType)
+		inherit.purevirtual(NodeT, "evalScalar", {}->OutputScalarType)
+	end
 
-		-- Generates a texture image by intepreting the entire program graph rooted at this node for each pixel in the image.
-		terra NodeT:interpretPixelwise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
-			var outimg = self.imagePool:fetch(xres, yres)
-			var xrange = xhi - xlo
-			var yrange = yhi - ylo
-			var xdelta = xrange / xres
-			var ydelta = yrange / yres
-			var yval = ylo
-			for y=0,yres do
-				var xval = xlo
-				for x=0,xres do
-					outimg(x,y) = self:evalPoint(xval, yval)
-					xval = xval + xdelta
-				end
-				yval = yval + ydelta
-			end
-			return outimg
+	inherit.purevirtual(NodeT, "evalVector", {}->&OutputVectorType)
+
+	-- Release a vector output previously computed by this node
+	terra NodeT:releaseOutput(outimg: &OutputVectorType)
+		if self.imagePool ~= nil then
+			self.imagePool:release(outimg)
 		end
 	end
 
-	-- Evaluate the texture function over an entire image
-	inherit.purevirtual(NodeT, "evalImage", {uint,uint,real,real,real,real}->&Image)
-
-	-- Generates a texture image by interpreting the program graph rooted at this node one node at a time, generating
-	--    an entire image at each stage.
-	terra NodeT:interpretNodewise(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
-		escape
-			if GPU then
-				-- We compute one scanline per thread block, so yres must be less than the maximum block dimension, and
-				--    xres must be less than the maximum thread dimension.
-				emit quote S.assert(yres <= cudaDeviceProps.maxGridSize[0] and xres <= cudaDeviceProps.maxThreadsDim[0]) end
-			end
-		end
-		return self:evalImage(xres, yres, xlo, xhi, ylo, yhi)
-	end
 
 
 	---------------------------------------------------------
 	-- Standard Node metatype function + related utilities --
 	---------------------------------------------------------
 
+	-- Add the coordinate input member to a node class
+	local function addCoordinateInput(nodeClass)
+		-- Member
+		nodeClass.entries:insert({field="inputCoordNode", type=&Node(real, 2, GPU)})
+		-- Getter
+		nodeClass.methods.getInputCoordNode = terra(self: &nodeClass)
+			return self.inputCoordNode
+		end
+		-- Setter
+		nodeClass.methods.setInputCoordNode = terra(self: &nodeClass, coord: &Node(real, 2, GPU))
+			self.inputCoordNode = coord
+		end
+	end
+
 	-- Many texture nodes have input nodes; this utility allows easy creation of members for those
 	--    inputs, as well as getters/setters
 	function NodeT.defineInputs(nodeClass, numchannelsList)
+		-- Throw an error if the class hasn't had coordinate input added to it; this must be added before
+		--    any other inputs
+		if not nodeClass.methods.setCoordInputNode then
+			error(string.format("%s.defineInputs called on node class %s which is not using the standard metatype.",
+				tostring(NodeT)))
+		end
 		for i,nchannels in ipairs(numchannelsList) do
 			local typ = &Node(real, nchannels, GPU)
 			-- Member
-			nodeClass.entries:insert({field=string.format("input%d",i), type=typ})
+			nodeClass.entries:insert({field=string.format("inputNode%d",i), type=typ})
 			-- Getter
 			local getter = terra(self: &nodeClass)
-				return self.[string.format("input%d",i)]
+				return self.[string.format("inputNode%d",i)]
 			end
 			getter:setinlined(true)
-			nodeClass.methods[string.format("getInput%d",i)] = getter
+			nodeClass.methods[string.format("getInputNode%d",i)] = getter
 			-- Setter
 			local setter = terra(self: &nodeClass, input: typ)
-				self.[string.format("input%d",i)] = input
+				self.[string.format("inputNode%d",i)] = input
 			end
 			setter:setinlined(true)
-			nodeClass.methods[string.format("setInput%d",i)] = setter
+			nodeClass.methods[string.format("setInputNode%d",i)] = setter
 		end
+	end
+
+	local function stringStartsWith(str, prefix)
+	   return string.sub(str, 1, string.len(prefix)) == prefix
 	end
 
 	-- Fetch all entries of a node struct that correspond to node inputs
@@ -183,114 +186,115 @@ Node = S.memoize(function(real, nchannels, GPU)
 	--    instead of passed in explicitly)
 	local function addEvalSelf(nodeClass)
 		local inputEntries = getInputEntries(nodeClass)
-		local inputSyms = inputEntries:map(function(e) return symbol(e.type) end)
+		local inputSyms = inputEntries:map(function(e) return symbol(e.type.type.OutputScalarType) end)
 		local paramEntries = getParamEntries(nodeClass)
 		-- Function body has to be wrapped in a macro to defer specialization until after class
 		--    author has defined the 'eval' method
-		local genFnBody = macro(function(self, x, y, ...)
+		local genFnBody = macro(function(self, ...)
 			local inputs = {...}
 			assert(nodeClass:getmethod("eval"),
 				string.format("Texture node type %s must have an eval method", tostring(nodeClass)))
 			local paramExps = paramEntries:map(function(e) return `self.[e.field] end)
-			return `nodeClass.eval(x, y, [inputs], [paramExps])
+			return `nodeClass.eval([inputs], [paramExps])
 		end)
-		nodeClass.methods.evalSelf = terra(self: &nodeClass, x: real, y: real, [inputSyms])
-			return genFnBody(self, x, y, [inputSyms])
+		nodeClass.methods.evalSelf = terra(self: &nodeClass, [inputSyms])
+			return genFnBody(self, [inputSyms])
 		end
 	end
 
-	-- Generate code for the virtual 'evalPoint' method
-	local genEvalPoint = macro(function(self, x, y)
+	-- TODO: Instead of computing and throwing away outputs, implement a caching system for intermediates to
+	--    reduce redundant computation when nodes have multiple outputs? (This is basically just
+	--    common subexpression elimination, which we hope the compiled version will do for us)
+
+	-- Generate code for the virtual 'evalScalar' method
+	local genEvalScalar = macro(function(self)
 		local nodeClass = self:gettype().type
-		-- evalPoint all of the inputs, then pass the results to eval.
+		-- evalScalar all of the inputs, then pass the results to eval.
 		local inputs = getInputEntries(nodeClass)
-		local inputResults = inputs:map(function(e) return `self.[e.field]:evalPoint(x,y) end)
-		return ensureVecEval(`self:evalSelf(x, y, [inputResults]), nodeClass)
+		local inputResults = inputs:map(function(e) return `self.[e.field]:evalScalar() end)
+		return ensureVecEval(`self:evalSelf([inputResults]), nodeClass)
 	end)
 
-	-- Generate code for the virtual 'evalImage' method
-	-- CPU version iterates over every pixel
-	local genEvalImage
+	-- Generate code for the virtual 'evalVector' method
+	local genEvalVector
 	if not GPU then
-		genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
+		genEvalVector = macro(function(self)
 			local nodeClass = self:gettype().type
 			-- Fetch an image to use for our output.
-			-- evalImage all of the inputs, then iterate over the results, calling eval.
+			-- evalVector all of the inputs, then iterate over the results, calling eval.
 			-- Release the images used for input results.
 			local inputs = getInputEntries(nodeClass)
-			local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
-			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.ImageType) end)
-			local inputTempsAssign = #inputTemps > 0 and
-				quote var [inputTemps] = [inputResults] end
-			or
-				quote end
+			local inputResults = inputs:map(function(e) return `self.[e.field]:evalVector() end)
+			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.OutputVectorType) end)
+			local inputTempsAssign = quote var [inputTemps] = [inputResults] end
 			local function inputTempsXY(x,y)
 				return inputTemps:map(function(img) return `img(x,y) end)
 			end
-			local freeInputResults = inputTemps:map(function(img) return `self.imagePool:release(img) end)
 			return quote
-				var outimg = self.imagePool:fetch(xres, yres)
 				[inputTempsAssign]
-				var xrange = xhi - xlo
-				var yrange = yhi - ylo
-				var xdelta = xrange / xres
-				var ydelta = yrange / yres
-				var yval = ylo
+				var xres = [inputTemps[1]].width
+				var yres = [inputTemps[1]].height
+				var outimg = self.imagePool:fetch(xres, yres)
 				for y=0,yres do
-					var xval = xlo
 					for x=0,xres do
-						outimg(x,y) = [ensureVecEval(`self:evalSelf(xval, yval, [inputTempsXY(xval, yval)]), nodeClass)]
-						xval = xval + xdelta
+						outimg(x,y) = [ensureVecEval(`self:evalSelf([inputTempsXY(x, y)]), nodeClass)]
 					end
-					yval = yval + ydelta
 				end
-				[freeInputResults]
+				-- Release intermediates
+				escape
+					for i,e in ipairs(inputs) do
+						emit `self.[e.field]:releaseOutput([inputTemps[i]])
+					end
+				end
 			in
 				outimg
 			end
 		end)
-	-- GPU version defines a CUDA kernel that does the above in parallel
 	else
-		genEvalImage = macro(function(self, xres, yres, xlo, xhi, ylo, yhi)
+		genEvalVector = macro(function(self)
 			local nodeClass = self:gettype().type
 			-- We generate and compile a CUDA kernel, then return a quote that calls that kernel.
 			local inputs = getInputEntries(nodeClass)
-			local inputSyms = inputs:map(function(e) return symbol(&e.type.type.OutputType) end)
+			local inputSyms = inputs:map(function(e) return symbol(&e.type.type.OutputScalarType) end)
+			local inputPitchSyms = inputSyms:map(function(e) return symbol(uint64) end)
 			local params = getParamEntries(nodeClass)
 			local paramSyms = params:map(function(e) return symbol(e.type) end)
-			local function inputTempsXY(xi, yi, pitch)
-				return inputSyms:map(function(s)
+			local function inputTempsXY(xi, yi)
+				local stmts = terralib.newlist()
+				for i,s in ipairs(inputSyms) do
 					local T = s.type.type
-					return `@( [&T] ( [&uint8](s) + yi*pitch ) + xi )
-				end)
+					stmts:insert( `@( [&T] ( [&uint8](s) + yi*[inputPitchSyms[i]] ) + xi ) )
+				end
+				return stmts
 			end
-			local terra kernel(output: &OutputType, width: uint, height: uint, pitch: uint64, xlo: real, xhi: real, ylo: real, yhi: real,
-							  [inputSyms], [paramSyms])
+			local terra kernel(output: &OutputScalarType, outpitch: uint64, [inputSyms], [inputPitchSyms], [paramSyms])
 				var xi = custd.threadIdx.x()
 				var yi = custd.blockIdx.x()
-				var xt = xi / real(width)
-				var yt = yi / real(height)
-				var x = lerp(xlo, xhi, xt)
-				var y = lerp(ylo, yhi, yt)
-				var outptr = [&OutputType]( [&uint8](output) + yi*pitch ) + xi
-				@outptr = [ensureVecEval(`nodeClass.eval(x, y, [inputTempsXY(xi, yi, pitch)], [paramSyms]), nodeClass)]
+				var outptr = [&OutputScalarType]( [&uint8](output) + yi*outpitch ) + xi
+				@outptr = [ensureVecEval(`nodeClass.eval([inputTempsXY(xi, yi)], [paramSyms]), nodeClass)]
 			end
 			local K = terralib.cudacompile({kernel = kernel}, false)
-			local inputResults = inputs:map(function(e) return `self.[e.field]:evalImage(xres,yres,xlo,ylo,yhi) end)
-			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.ImageType) end)
-			local inputTempsAssign = #inputTemps > 0 and
-				quote var [inputTemps] = [inputResults] end
-			or
-				quote end
+			local inputResults = inputs:map(function(e) return `self.[e.field]:evalVector() end)
+			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.OutputVectorType) end)
+			local inputTempsAssign = quote var [inputTemps] = [inputResults] end
 			local inputTempsData = inputTemps:map(function(img) return `img.data end)
+			local inputTempsPitch = inputTemps:map(function(img) return `img.pitch end)
 			local paramExps = params:map(function(e) return `self.[e.field] end)
-			local freeInputResults = inputTemps:map(function(img) return `self.imagePool:release(img) end)
 			return quote
-				var outimg = self.imagePool:fetch(xres, yres)
 				[inputTempsAssign]
+				var xres = [inputTemps[1]].width
+				var yres = [inputTemps[1]].height
+				var outimg = self.imagePool:fetch(xres, yres)
+				-- Don't need an assert on xres, yres here b/c Program:interpretVector already has one
+				-- TODO: If we implement caching and move that logic out of Program, we might need to reinstate the assert here.
 				var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
-				K.kernel(&cudaparams, outimg.data, xres, yres, outimg.pitch, xlo, xhi, ylo, yhi, [inputTempsData], [paramExps])
-				[freeInputResults]
+				K.kernel(&cudaparams, outimg.data, outimg.pitch, [inputTempsData], [inputTempsPitch], [paramExps])
+				-- Release intermediates
+				escape
+					for i,e in ipairs(inputs) do
+						emit `self.[e.field]:releaseOutput([inputTemps[i]])
+					end
+				end
 			in
 				outimg
 			end
@@ -299,20 +303,21 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	function NodeT.Metatype(nodeClass)
 
+		addCoordinateInput(nodeClass)
+
 		addEvalSelf(nodeClass)
 
 		if not GPU then
-			terra nodeClass:evalPoint(x: real, y: real) : OutputType
-				return genEvalPoint(self, x,y)
+			terra nodeClass:evalScalar() : OutputScalarType
+				return genEvalScalar(self)
 			end
-			inherit.virtual(nodeClass, "evalPoint")
+			inherit.virtual(nodeClass, "evalScalar")
 		end
 
-		terra nodeClass:evalImage(xres: uint, yres: uint, xlo: real, xhi: real, ylo: real, yhi: real)
-								  : &Image
-			return genEvalImage(self, xres,yres,xlo,xhi,ylo,yhi)
+		terra nodeClass:evalVector() : &OutputVectorType
+			return genEvalVector(self)
 		end
-		inherit.virtual(nodeClass, "evalImage")
+		inherit.virtual(nodeClass, "evalVector")
 
 	end
 
