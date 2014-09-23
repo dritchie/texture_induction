@@ -11,6 +11,13 @@ local custd = terralib.require("utils.cuda.custd")
 
 
 
+-- Associating a unique identifier with every texture node class
+local nodeTypeID = 1
+local idToType = {}
+
+
+
+
 -- Abstract base class for all texture nodes
 local Node
 Node = S.memoize(function(real, nchannels, GPU)
@@ -37,6 +44,9 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	local struct NodeT(S.Object)
 	{
+		-- type ID (for Lua introspection)
+		typeID: uint,
+
 		-- 'Registers' used to store vector interpreter intermediates
 		imagePool: &ImagePool(real, nchannels, GPU),
 
@@ -52,6 +62,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	terra NodeT:__init(registers: &Registers(real, GPU))
 		self:initmembers()
+		self.typeID = 0		-- Subclasses should set this to a positive value
 		S.assert(registers ~= nil)
 		escape
 			if isGrayscale then
@@ -193,6 +204,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		end
 		return lst
 	end
+	NodeT.getInputEntries = getInputEntries
 
 	-- Fetch all entries of a node struct that correspond to node parameters
 	-- (These are all entries of the struct, minus the inputs and anything defined
@@ -217,6 +229,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		end
 		return lst
 	end
+	NodeT.getParamEntries = getParamEntries
 
 	-- If the number of channels is 1, then 'eval' returns real and we need
 	--    to convert that to a Vec(real, 1) to be consistent with downstream code.
@@ -233,6 +246,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 			return expr
 		end
 	end
+	NodeT.ensureVecEval = ensureVecEval
 
 	-- Add the 'evalSelf' method (the version of eval that uses parameters stored on 'self'
 	--    instead of passed in explicitly)
@@ -358,6 +372,10 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	function NodeT.Metatype(nodeClass)
 
+		nodeClass.NodeTypeID = nodeTypeID
+		idToType[nodeTypeID] = nodeClass
+		nodeTypeID = nodeTypeID + 1
+
 		addCoordinateInput(nodeClass)
 
 		addEvalSelf(nodeClass)
@@ -412,6 +430,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		local struct NodeClass(S.Object) {}
 		local ParentNodeType = Node(real, nchannels, GPU)
 		inherit.dynamicExtend(ParentNodeType, NodeClass)
+		NodeClass.ParentNodeType = ParentNodeType
 
 		NodeClass.methods.eval = evalFn
 
@@ -443,6 +462,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 					emit quote self.[string.format("param%d",i)] = ps end
 				end
 			end
+			self.typeID = [NodeClass.NodeTypeID]   -- *must* be set for compiler code gen to work
 		end
 
 		return NodeClass
@@ -450,12 +470,54 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 end
 
 
+-- Recursively generate code for the function body of a compiled texture program.
+local genCodeForClass
+local function generateCode(node, bodyStmts, paramSyms, paramExtractExprs, immCache, selfExpr)
+	-- Don't generate if we've already done so and cached the result
+	local nodekey = tostring(terralib.cast(uint64, node))
+	local retsym = immCache[nodekey]
+	if not retsym then
+		local nodeClass = idToType[node.typeID]
+		assert(nodeClass, string.format("generateCode found node typeID %d that did not map to any Node type.", node.typeID))
+		retsym = genCodeForClass(nodeClass, terralib.cast(&nodeClass, node), bodyStmts, paramSyms,
+			paramExtractExprs, immCache, `[&nodeClass](selfExpr))
+		immCache[nodekey] = retsym
+	end
+	return retsym
+end
+
+genCodeForClass = function(nodeClass, node, bodyStmts, paramSyms, paramExtractExprs, immCache, selfExpr)
+	local ParentNodeType = nodeClass.ParentNodeType
+	-- Recursively ensure code has been generated for inputs
+	local myInputs = ParentNodeType.getInputEntries(nodeClass)
+	local myInputSyms = myInputs:map(function(ie)
+		local inNode = node[ie.field]
+		local inSelfExpr = `selfExpr.[ie.field]
+		return generateCode(inNode, bodyStmts, paramSyms, paramExtractExprs, immCache, inSelfExpr)
+	end)
+	-- Fill in params stuff
+	local myParams = ParentNodeType.getParamEntries(nodeClass)
+	local myParamSyms = terralib.newlist()
+	for _,pe in ipairs(myParams) do
+		local psym = symbol(pe.type)
+		myParamSyms:insert(psym)
+		paramSyms:insert(psym)
+		paramExtractExprs:insert(`selfExpr.[pe.field])
+	end
+	-- Generate code for this node
+	local retsym = symbol(ParentNodeType.OutputScalarType)
+	bodyStmts:insert(quote
+		var [retsym] = [ParentNodeType.ensureVecEval(`nodeClass.eval([myInputSyms], [myParamSyms]), nodeClass)]
+	end)
+	return retsym
+end
 
 
 return
 {
 	Node = Node,
-	makeNodeFromFunc = makeNodeFromFunc
+	makeNodeFromFunc = makeNodeFromFunc,
+	generateCode = generateCode
 }
 
 
