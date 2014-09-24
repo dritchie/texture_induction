@@ -213,6 +213,76 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 	end
 	MatT.methods.isnan:setinlined(true)
 
+	-- 2D Transformation matrices
+	if rowdim == 3 and coldim == 3 then
+		local Vec2 = Vec(real, 2)
+		local Vec3 = Vec(real, 3)
+
+		terra MatT:transformPoint(v: Vec2)
+			var vout = @self * @Vec3.salloc():init(v(0), v(1), 1.0)
+			var vret : Vec2
+			if vout(2) == 0.0 then
+				vret:init(0.0, 0.0)
+			else
+				vret:init(vout(0)/vout(2), vout(1)/vout(2))
+			end
+			return vret
+		end
+		MatT.methods.transformPoint:setinlined(true)
+
+		terra MatT:transformVector(v: Vec2)
+			var vout = @self * @Vec3.salloc():init(v(0), v(1), 0.0)
+			var vret : Vec2
+			vret:init(vout(0), vout(1))
+			return vret
+		end
+		MatT.methods.transformVector:setinlined(true)
+
+		MatT.methods.translate = terra(tx: real, ty: real) : MatT
+			var mat = MatT.identity()
+			mat(0, 2) = tx
+			mat(1, 2) = ty
+			return mat
+		end
+		MatT.methods.translate:adddefinition((terra(tv: Vec2) : MatT
+			return MatT.translate(tv(0), tv(1))
+		end):getdefinitions()[1])
+
+		MatT.methods.scale = terra(sx: real, sy: real) : MatT
+			var mat = MatT.identity()
+			mat(0,0) = sx
+			mat(1,1) = sy
+			return mat
+		end
+		MatT.methods.scale:adddefinition((terra(s: real) : MatT
+			return MatT.scale(s, s)
+		end):getdefinitions()[1])
+
+		MatT.methods.rotate = terra(r: real)
+			var mat = MatT.identity()
+			var cosr = mlib.cos(r)
+			var sinr = mlib.sin(r)
+			mat(0,0) = cosr
+			mat(0,1) = -sinr
+			mat(1,0) = sinr
+			mat(1,1) = cosr
+			return mat
+		end
+
+		MatT.methods.shearYontoX = terra(s: real)
+			var mat = MatT.identity()
+			mat(0, 1) = s
+			return mat
+		end
+
+		MatT.methods.shearXontoY = terra(s: real)
+			var mat = MatT.identity()
+			mat(1, 0) = s
+			return mat
+		end
+
+	end
+
 	-- 3D Transformation matrices
 	if rowdim == 4 and coldim == 4 then
 		local Vec3 = Vec(real, 3)
@@ -380,8 +450,6 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 
 	end
 
-
-	m.addConstructors(MatT)
 	return MatT
 end)
 
