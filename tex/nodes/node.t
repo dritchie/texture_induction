@@ -434,6 +434,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		NodeClass.ParentNodeType = ParentNodeType
 
 		NodeClass.methods.eval = evalFn
+		NodeClass.methods.eval:setinlined(true)
 
 		-- Add struct entries for each parameter. We figure out the parameters
 		--    by inspecting the parameter list of the eval function. If the node has
@@ -490,8 +491,6 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		inherit.virtual(NodeClass, "__destruct")
 
 		-- Add a factory function that will heap allocate a new instance
-		-- Some subclasses may want to 'override' the factory function to hide/abstract
-		--    the creation of a small subgraph of nodes (e.g. warp)
 		local success, inittype = NodeClass.methods.__init:peektype()
 		assert(success, "makeNodeFromFunc: Couldn't peektype the __init method--this should be impossible...")
 		local argSyms = terralib.newlist()
