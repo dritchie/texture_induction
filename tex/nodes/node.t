@@ -407,6 +407,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 	return S.memoize(function(...)
 		local args = {...}
 		local evalFn = fnTemplate(...)
+		evalFn:setinlined(true)
 		local evalFnType = evalFn:gettype()
 		assert(inputNChannelsList ~= nil,
 			"makeNodeFromFunc: number of channels for each input was not provided.")
@@ -434,7 +435,6 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		NodeClass.ParentNodeType = ParentNodeType
 
 		NodeClass.methods.eval = evalFn
-		NodeClass.methods.eval:setinlined(true)
 
 		-- Add struct entries for each parameter. We figure out the parameters
 		--    by inspecting the parameter list of the eval function. If the node has

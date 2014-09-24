@@ -25,7 +25,7 @@ local WarpNode = node.makeNodeFromFunc(function(real, GPU)
 end, {1, 1, 1})
 
 
-return S.memoize(function(real, GPU)
+local WarpNodeWrapper = S.memoize(function(real, GPU)
 	local WarpNodeT = WarpNode(real, GPU)
 	local rawCreate = WarpNodeT.methods.create
 	local succ, T = rawCreate:peektype()
@@ -33,10 +33,15 @@ return S.memoize(function(real, GPU)
 	local CoordNode = T.parameters[2]
 	local GrayscaleNode = T.parameters[3]
 	WarpNodeT.methods.create = terra(registers: Registers, coordNode: CoordNode, inputNode: GrayscaleNode, strength: real)
-		var dxNode = [finitediff.XShift(real, GPU)].create(registers, coordNode, DELTA)
-		var dyNode = [finitediff.YShift(real, GPU)].create(registers, coordNode, DELTA)
+		var dxNode = [finitediff.XShiftNode(real, GPU)].create(registers, coordNode, DELTA)
+		var dyNode = [finitediff.YShiftNode(real, GPU)].create(registers, coordNode, DELTA)
 		return rawCreate(registers, coordNode, inputNode, dxNode, dyNode, strength)
 	end
 	return WarpNodeT
 end)
 
+
+return
+{
+	WarpNode = WarpNodeWrapper
+}

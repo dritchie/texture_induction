@@ -4,8 +4,8 @@ local image = terralib.require("utils.image")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local Program = terralib.require("tex.program")
 local Registers = terralib.require("tex.registers")
-local PerlinNode = terralib.require("tex.nodes.perlin")
 local randTables = terralib.require("tex.randTables")
+local nodes = terralib.require("tex.nodes.nodes")
 
 
 -- -- For reference:
@@ -20,159 +20,159 @@ local GPU = true
 
 ----------------------------------------------------------------------
 
--- Inferring parameters of Perlin noise
+-- -- Inferring parameters of Perlin noise
 
-local qs = terralib.require("qs")
+-- local qs = terralib.require("qs")
 
-local p = qs.program(function()
+-- local p = qs.program(function()
 
-	local FACTOR_WEIGHT = 250.0
+-- 	local FACTOR_WEIGHT = 250.0
 
-	local gradients = randTables.const_gradients(qs.real, GPU)
-	local registers = global(Registers(qs.real, GPU))
+-- 	local gradients = randTables.const_gradients(qs.real, GPU)
+-- 	local registers = global(Registers(qs.real, GPU))
 
-	local Image = image.Image(qs.real, 1)
-	local targetImg = global(Image)
-	local testImg = global(Image)
+-- 	local Image = image.Image(qs.real, 1)
+-- 	local targetImg = global(Image)
+-- 	local testImg = global(Image)
 
-	local terra initglobals()
-		registers:init()
-		targetImg:init(image.Format.PNG, "perlinTest.png")
-		testImg:init()
-	end
-	initglobals()
+-- 	local terra initglobals()
+-- 		registers:init()
+-- 		targetImg:init(image.Format.PNG, "perlinTest_orig.png")
+-- 		testImg:init()
+-- 	end
+-- 	initglobals()
 
-	-- For working with a compiled program
-	-- (For now, we just compile once. In general, we'll need a mechanism to trigger recompilation
-	--    whenever program structure changes)
-	local OutImgType = Image
-	if GPU then OutImgType = CUDAImage(qs.real, 1) end
-	local globalProgram = nil
-	local globalProgramFnPtr = global({&Program(qs.real, 1, GPU), &OutImgType, qs.real, qs.real, qs.real, qs.real}->{}, 0)
-	local function compileProgram(program)
-		globalProgram = Program(qs.real, 1, GPU).methods.compile(program)
-		globalProgramFnPtr:set(globalProgram:getpointer())
-	end
+-- 	-- For working with a compiled program
+-- 	-- (For now, we just compile once. In general, we'll need a mechanism to trigger recompilation
+-- 	--    whenever program structure changes)
+-- 	local OutImgType = Image
+-- 	if GPU then OutImgType = CUDAImage(qs.real, 1) end
+-- 	local globalProgram = nil
+-- 	local globalProgramFnPtr = global({&Program(qs.real, 1, GPU), &OutImgType, qs.real, qs.real, qs.real, qs.real}->{}, 0)
+-- 	local function compileProgram(program)
+-- 		globalProgram = Program(qs.real, 1, GPU).methods.compile(program)
+-- 		globalProgramFnPtr:set(globalProgram:getpointer())
+-- 	end
 
-	-- TODO: CUDA parallel reduction (the computation is almost negligible, actually, but all
-	--    the device->host memcpy's that we have to do when generating textures on the GPU
-	--    are cutting down the performance increase by about 2x)
-	local mlib = mathlib(false)
-	local terra imMSE(im1: &Image, im2: &Image)
-		var sqerr = qs.real(0.0)
-		for y=0,im1.height do
-			for x=0,im1.width do
-				var diff = im1(x,y) - im2(x,y)
-				sqerr = sqerr + diff:dot(diff)
-			end
-		end
-		return mlib.sqrt(sqerr / (im1.width*im1.height))
-	end
+-- 	-- TODO: CUDA parallel reduction (the computation is almost negligible, actually, but all
+-- 	--    the device->host memcpy's that we have to do when generating textures on the GPU
+-- 	--    are cutting down the performance increase by about 2x)
+-- 	local mlib = mathlib(false)
+-- 	local terra imMSE(im1: &Image, im2: &Image)
+-- 		var sqerr = qs.real(0.0)
+-- 		for y=0,im1.height do
+-- 			for x=0,im1.width do
+-- 				var diff = im1(x,y) - im2(x,y)
+-- 				sqerr = sqerr + diff:dot(diff)
+-- 			end
+-- 		end
+-- 		return mlib.sqrt(sqerr / (im1.width*im1.height))
+-- 	end
 
-	return terra()
-		var frequency = qs.gammamv(1.0, 0.5, {struc=false})
-		var lacunarity = qs.gammamv(2.0, 1.0, {struc=false})
-		var persistence = qs.betamv(0.5, 0.05, {struc=false})
-		var octaves = qs.poisson(6)
+-- 	return terra()
+-- 		var frequency = qs.gammamv(1.0, 0.5, {struc=false})
+-- 		var lacunarity = qs.gammamv(2.0, 1.0, {struc=false})
+-- 		var persistence = qs.betamv(0.5, 0.05, {struc=false})
+-- 		var octaves = qs.poisson(6)
 
-		var program = [Program(qs.real, 1, GPU)].salloc():init(&registers)
-		var perlin = [PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
-						gradients, frequency, lacunarity, persistence, octaves)
-		program:setOuputNode(perlin)
-		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
+-- 		var program = [Program(qs.real, 1, GPU)].salloc():init(&registers)
+-- 		var perlin = [nodes.PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
+-- 						gradients, frequency, lacunarity, persistence, octaves)
+-- 		program:setOuputNode(perlin)
+-- 		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
 
-		-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
-		-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
-		if globalProgramFnPtr == nil then
-			compileProgram(program)
-		end
-		globalProgramFnPtr(program, tex, 0.0, 1.0, 0.0, 1.0)
+-- 		-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
+-- 		-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
+-- 		if globalProgramFnPtr == nil then
+-- 			compileProgram(program)
+-- 		end
+-- 		globalProgramFnPtr(program, tex, 0.0, 1.0, 0.0, 1.0)
 
-		escape
-			if not GPU then
-				emit quote qs.factor(-imMSE(tex, &targetImg) * FACTOR_WEIGHT) end
-			else
-				emit quote
-					tex:toHostImg(&testImg)
-					qs.factor(-imMSE(&testImg, &targetImg) * FACTOR_WEIGHT)
-				end
-			end
-		end
+-- 		escape
+-- 			if not GPU then
+-- 				emit quote qs.factor(-imMSE(tex, &targetImg) * FACTOR_WEIGHT) end
+-- 			else
+-- 				emit quote
+-- 					tex:toHostImg(&testImg)
+-- 					qs.factor(-imMSE(&testImg, &targetImg) * FACTOR_WEIGHT)
+-- 				end
+-- 			end
+-- 		end
 
-		registers.grayscaleRegisters:release(tex)
-		return frequency, lacunarity, persistence, octaves
-	end
+-- 		registers.grayscaleRegisters:release(tex)
+-- 		return frequency, lacunarity, persistence, octaves
+-- 	end
 
-end)
+-- end)
 
--- local doinference = qs.infer(p, qs.MAP, qs.MCMC(qs.TraceMHKernel(), {numsamps=2000, verbose=true}))
-local doinference = qs.infer(p, qs.MAP, qs.MCMC(
-	qs.MixtureKernel({
-		-- qs.TraceMHKernel({doStruct=false}),
-		qs.DriftKernel(),
-		-- qs.HARMKernel(),
-		qs.TraceMHKernel({doNonstruct=false})
-	}, {0.75, 0.25}),
-	{numsamps=2000, verbose=true})
-)
+-- -- local doinference = qs.infer(p, qs.MAP, qs.MCMC(qs.TraceMHKernel(), {numsamps=2000, verbose=true}))
+-- local doinference = qs.infer(p, qs.MAP, qs.MCMC(
+-- 	qs.MixtureKernel({
+-- 		-- qs.TraceMHKernel({doStruct=false}),
+-- 		qs.DriftKernel(),
+-- 		-- qs.HARMKernel(),
+-- 		qs.TraceMHKernel({doNonstruct=false})
+-- 	}, {0.75, 0.25}),
+-- 	{numsamps=2000, verbose=true})
+-- )
 
-local terra report()
-	var frequency, lacunarity, persistence, octaves = doinference()
-	S.printf("frequency: %g, lacunarity: %g, persistence: %g, octaves: %u\n",
-		frequency, lacunarity, persistence, octaves)
-end
-report()
+-- local terra report()
+-- 	var frequency, lacunarity, persistence, octaves = doinference()
+-- 	S.printf("frequency: %g, lacunarity: %g, persistence: %g, octaves: %u\n",
+-- 		frequency, lacunarity, persistence, octaves)
+-- end
+-- report()
 
 
 ----------------------------------------------------------------------
 
--- -- Generating some noise
+-- Generating some noise
 
--- local gradients = randTables.const_gradients(double, GPU)
--- local registers = global(Registers(double, GPU))
--- local program = global(Program(double, 1, GPU))
--- local terra initGlobals()
--- 	registers:init()
--- 	program:init(&registers)
--- 	var perlin = [PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
--- 												  gradients, 1.0, 3.0, 0.75, 6)
--- 	program:setOuputNode(perlin)
--- end
--- initGlobals()
+local gradients = randTables.const_gradients(double, GPU)
+local registers = global(Registers(double, GPU))
+local program = global(Program(double, 1, GPU))
+local terra initGlobals()
+	registers:init()
+	program:init(&registers)
+	var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+												  		gradients, 1.0, 3.0, 0.75, 6)
+	program:setOuputNode(perlin)
+end
+initGlobals()
 
--- local t0 = terralib.currenttimeinseconds()
--- local compiledfn = Program(double, 1, GPU).methods.compile(program:getpointer())
--- local t1 = terralib.currenttimeinseconds()
--- compiledfn:compile()
--- local t2 = terralib.currenttimeinseconds()
--- print("Specialization time: ", t1-t0)
--- print("Typechecking/compilation time: ", t2-t1)
--- print("Total time: ", t2-t0)
+local t0 = terralib.currenttimeinseconds()
+local compiledfn = Program(double, 1, GPU).methods.compile(program:getpointer())
+local t1 = terralib.currenttimeinseconds()
+compiledfn:compile()
+local t2 = terralib.currenttimeinseconds()
+print("Specialization time: ", t1-t0)
+print("Typechecking/compilation time: ", t2-t1)
+print("Total time: ", t2-t0)
 
 
--- local terra test()
--- 	var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
+local terra test()
+	var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
 
--- 	-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
--- 	-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
--- 	compiledfn(&program, tex, 0.0, 1.0, 0.0, 1.0)
+	-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
+	-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
+	compiledfn(&program, tex, 0.0, 1.0, 0.0, 1.0)
 
--- 	escape
--- 		if not GPU then
--- 			emit quote [image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png") end
--- 		else
--- 			emit quote
--- 				var img = [image.Image(double, 1)].salloc():init()
--- 				tex:toHostImg(img)
--- 				[image.Image(double, 1).save(uint8)](img, image.Format.PNG, "perlinTest_CUDA.png")
--- 			end
--- 		end
--- 	end
+	escape
+		if not GPU then
+			emit quote [image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png") end
+		else
+			emit quote
+				var img = [image.Image(double, 1)].salloc():init()
+				tex:toHostImg(img)
+				[image.Image(double, 1).save(uint8)](img, image.Format.PNG, "perlinTest_CUDA.png")
+			end
+		end
+	end
 
--- 	registers.grayscaleRegisters:release(tex)
+	registers.grayscaleRegisters:release(tex)
 
--- end
--- test()
+end
+test()
 
 ----------------------------------------------------------------------
 
