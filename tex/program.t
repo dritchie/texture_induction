@@ -56,17 +56,30 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 	local struct Program(S.Object)
 	{
 		-- The input and output nodes
-		inputCoordNode: CoordSourceNode(real, GPU),
+		inputCoordNode: &CoordSourceNode(real, GPU),
 		outputNode: &Node(real, nOutChannels, GPU)
 	}
 
 	terra Program:__init(registers: &Registers(real, GPU))
-		self.inputCoordNode:init(registers)
+		self.inputCoordNode = [CoordSourceNode(real, GPU)].alloc():init(registers)
 		self.outputNode = nil
 	end
 
+	terra Program:__destruct()
+		-- If the output node is set, then invoke recursive delete.
+		-- The program graph is assumed to refer to self.inputCoordNode,
+		--    so we do not need to explicitly delete it.
+		if self.outputNode ~= nil then
+			self.outputNode:delete()
+		-- Otherwise, we need to explicitly delete self.inputCoordNode.
+		-- (Corresponds to deleting an 'empty' program)
+		else
+			self.inputCoordNode:delete()
+		end
+	end
+
 	-- Retrieve a pointer to the coord source node for this program.
-	terra Program:getInputCoordNode() return &self.inputCoordNode end
+	terra Program:getInputCoordNode() return self.inputCoordNode end
 
 	-- Output node must be set before the program can be executed.
 	terra Program:setOuputNode(outnode: &Node(real, nOutChannels, GPU))

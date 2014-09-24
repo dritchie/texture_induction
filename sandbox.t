@@ -76,9 +76,8 @@ local p = qs.program(function()
 		var octaves = qs.poisson(6)
 
 		var program = [Program(qs.real, 1, GPU)].salloc():init(&registers)
-		var perlin = [PerlinNode(qs.real, GPU)].salloc():init(&registers, gradients,
-			frequency, lacunarity, persistence, octaves)
-		perlin:setInputCoordNode(program:getInputCoordNode())
+		var perlin = [PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
+						gradients, frequency, lacunarity, persistence, octaves)
 		program:setOuputNode(perlin)
 		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
 
@@ -135,10 +134,8 @@ report()
 -- local terra initGlobals()
 -- 	registers:init()
 -- 	program:init(&registers)
--- 	-- This will leak, but whatever. I can figure out the right destructor behavior later.
--- 	var perlin = [PerlinNode(double, GPU)].alloc():init(&registers, gradients,
--- 													1.0, 3.0, 0.75, 6)
--- 	perlin:setInputCoordNode(program:getInputCoordNode())
+-- 	var perlin = [PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+-- 												  gradients, 1.0, 3.0, 0.75, 6)
 -- 	program:setOuputNode(perlin)
 -- end
 -- initGlobals()

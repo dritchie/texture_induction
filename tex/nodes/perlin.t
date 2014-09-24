@@ -1,4 +1,3 @@
-local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local randTables = terralib.require("tex.randTables")
 local node = terralib.require("tex.nodes.node")

@@ -62,7 +62,7 @@ Vec = S.memoize(function(real, dim, GPU)
 		return t
 	end
 
-	-- Constructors/destructors/etc.
+	-- Constructors
 	terra VecT:__init()
 		[entryList(self)] = [replicate(`0.0, dim)]
 	end
