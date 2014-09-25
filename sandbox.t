@@ -128,14 +128,21 @@ local GPU = true
 
 -- Generating some noise
 
+local Mat = terralib.require("utils.linalg.mat")
+local Mat3 = Mat(double, 3, 3, GPU)
+
 local gradients = randTables.const_gradients(double, GPU)
 local registers = global(Registers(double, GPU))
 local program = global(Program(double, 1, GPU))
 local terra initGlobals()
 	registers:init()
 	program:init(&registers)
-	var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+	var xform = [nodes.TransformNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+														  Mat3.scale(10.0, 1.0))
+	var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, xform,
 												  		gradients, 1.0, 3.0, 0.75, 6)
+	-- var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+	-- 											  		gradients, 1.0, 3.0, 0.75, 6)
 	program:setOuputNode(perlin)
 end
 initGlobals()

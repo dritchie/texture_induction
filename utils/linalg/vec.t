@@ -46,7 +46,11 @@ Vec = S.memoize(function(real, dim, GPU)
 		entries: real[dim]
 	}
 	VecT.metamethods.__typename = function(self)
-		return string.format("Vec(%s, %d)", tostring(real), dim)
+		if GPU then
+			return string.format("Vec(%s, %d, GPU)", tostring(real), dim)
+		else
+			return string.format("Vec(%s, %d)", tostring(real), dim)
+		end
 	end
 	VecT.RealType = real
 	VecT.Dimension = dim

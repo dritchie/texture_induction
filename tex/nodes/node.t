@@ -7,6 +7,7 @@ local Registers = terralib.require("tex.registers")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
+local cudaWrapKernel = terralib.require("utils.cuda.cukernelwrap")
 
 
 
@@ -334,7 +335,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 				var outptr = [&OutputScalarType]( [&uint8](output) + yi*outpitch ) + xi
 				@outptr = [ensureVecEval(`nodeClass.eval([inputTempsXY(xi, yi)], [paramSyms]), nodeClass)]
 			end
-			local K = terralib.cudacompile({kernel = kernel}, false)
+			local wkernel = cudaWrapKernel(kernel)
 			local inputResults = inputs:map(function(e) return `self.[e.field]:evalVector() end)
 			local inputTemps = inputs:map(function(e) return symbol(&e.type.type.OutputVectorType) end)
 			local inputTempsAssign = quote var [inputTemps] = [inputResults] end
@@ -350,7 +351,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 				-- Don't need an assert on xres, yres here b/c Program:interpretVector already has one
 				-- TODO: If we implement caching and move that logic out of Program, we might need to reinstate the assert here.
 				var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
-				K.kernel(&cudaparams, outimg.data, outimg.pitch, [inputTempsData], [inputTempsPitch], [paramExps])
+				wkernel(&cudaparams, outimg.data, outimg.pitch, [inputTempsData], [inputTempsPitch], [paramExps])
 				[releaseInputTemps]
 			in
 				outimg

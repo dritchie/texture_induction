@@ -52,7 +52,11 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 	MatT.ColDimension = coldim
 
 	MatT.metamethods.__typename = function(self)
-		return string.format("Mat(%s, %d, %d)", tostring(real), rowdim, coldim)
+		if GPU then
+			return string.format("Mat(%s, %d, %d, GPU)", tostring(real), rowdim, coldim)
+		else
+			return string.format("Mat(%s, %d, %d)", tostring(real), rowdim, coldim)
+		end
 	end
 
 	local function entryList(self)
@@ -155,7 +159,7 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 		mat:divInPlace(s)
 		return mat
 	end
-	MatT.methods.__div:setinlined(true)
+	MatT.metamethods.__div:setinlined(true)
 
 	-- At the moment, I'll only support matrix/matrix multiply between
 	--    square matrices
@@ -185,8 +189,8 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 	end
 
 	-- Matrix/vector multiply
-	local InVecT = Vec(real, coldim)
-	local OutVecT = Vec(real, rowdim)
+	local InVecT = Vec(real, coldim, GPU)
+	local OutVecT = Vec(real, rowdim, GPU)
 	MatT.metamethods.__mul:adddefinition((terra(m1: MatT, v: InVecT)
 		var vout : OutVecT
 		[(function()
@@ -215,8 +219,8 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 
 	-- 2D Transformation matrices
 	if rowdim == 3 and coldim == 3 then
-		local Vec2 = Vec(real, 2)
-		local Vec3 = Vec(real, 3)
+		local Vec2 = Vec(real, 2, GPU)
+		local Vec3 = Vec(real, 3, GPU)
 
 		terra MatT:transformPoint(v: Vec2)
 			var vout = @self * @Vec3.salloc():init(v(0), v(1), 1.0)
@@ -285,8 +289,8 @@ Mat = S.memoize(function(real, rowdim, coldim, GPU)
 
 	-- 3D Transformation matrices
 	if rowdim == 4 and coldim == 4 then
-		local Vec3 = Vec(real, 3)
-		local Vec4 = Vec(real, 4)
+		local Vec3 = Vec(real, 3, GPU)
+		local Vec4 = Vec(real, 4, GPU)
 
 		terra MatT:transformPoint(v: Vec3)
 			var vout = @self * @Vec4.salloc():init(v(0), v(1), v(2), 1.0)

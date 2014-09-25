@@ -7,6 +7,7 @@ local Registers = terralib.require("tex.registers")
 local CoordSourceNode = terralib.require("tex.nodes.coordSource")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
+local cudaWrapKernel = terralib.require("utils.cuda.cukernelwrap")
 
 local Node = node.Node
 
@@ -182,11 +183,11 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 						var outptr = [&Vec(real, nOutChannels, true)]( [&uint8](output) + yi*pitch ) + xi
 						@outptr = scalarfn(coord, [paramSymbols])
 					end
-					local K = terralib.cudacompile({kernel = kernel}, false)
+					local wkernel = cudaWrapKernel(kernel)
 					emit quote
 						S.assert(yres <= cudaDeviceProps.maxGridSize[0] and xres <= cudaDeviceProps.maxThreadsDim[0])
 						var cudaparams = terralib.CUDAParams { yres,1,1,  xres,1,1,  0, nil }
-						K.kernel(&cudaparams, outimg.data, outimg.width, outimg.height, outimg.pitch, xlo, xhi, ylo, yhi, [paramExtractExprs])
+						wkernel(&cudaparams, outimg.data, outimg.width, outimg.height, outimg.pitch, xlo, xhi, ylo, yhi, [paramExtractExprs])
 					end
 				end
 			end
