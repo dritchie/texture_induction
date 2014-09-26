@@ -5,7 +5,7 @@ local CUDAImage = terralib.require("utils.cuda.cuimage")
 local Program = terralib.require("tex.program")
 local Registers = terralib.require("tex.registers")
 local randTables = terralib.require("tex.randTables")
-local nodes = terralib.require("tex.nodes.nodes")
+local fns = terralib.require("tex.functions.functions")
 
 
 -- -- For reference:
@@ -76,7 +76,7 @@ local GPU = true
 -- 		var octaves = qs.poisson(6)
 
 -- 		var program = [Program(qs.real, 1, GPU)].salloc():init(&registers)
--- 		var perlin = [nodes.PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
+-- 		var perlin = [fns.PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
 -- 						gradients, frequency, lacunarity, persistence, 0, octaves)
 -- 		program:setOuputNode(perlin)
 -- 		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
@@ -138,14 +138,14 @@ local terra initGlobals()
 	registers:init()
 	program:init(&registers)
 	var coords = program:getInputCoordNode()
-	var warpField = [nodes.PerlinNode(double, GPU)].create(&registers, coords,
+	var warpField = [fns.PerlinNode(double, GPU)].create(&registers, coords,
 												  		gradients, 1.0, 3.0, 0.75, 0, 2)
-	var warp = [nodes.WarpNode(double, GPU)].create(&registers, coords,
+	var warp = [fns.WarpNode(double, GPU)].create(&registers, coords,
 													warpField, 0.05)
-	var stretchXform = [nodes.TransformNode(double, GPU)].create(&registers, warp,
+	var stretchXform = [fns.TransformNode(double, GPU)].create(&registers, warp,
 														  Mat3.scale(10.0, 1.0))
 
-	var woodNoise = [nodes.PerlinNode(double, GPU)].create(&registers, stretchXform,
+	var woodNoise = [fns.PerlinNode(double, GPU)].create(&registers, stretchXform,
 												  		   gradients, 1.0, 3.0, 0.75, 0, 6)
 	program:setOuputNode(woodNoise)
 end

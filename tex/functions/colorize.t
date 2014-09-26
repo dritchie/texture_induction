@@ -1,5 +1,5 @@
 local S = terralib.require("qs.lib.std")
-local node = terralib.require("tex.nodes.node")
+local node = terralib.require("tex.functions.node")
 local Vec = terralib.require("utils.linalg.vec")
 
 

@@ -1,5 +1,5 @@
 
--- Pack all of the user-facing nodes into one master module, so we don't
+-- Pack all of the user-facing functions into one master module, so we don't
 --    have to include a ton of different files to use them all.
 
 
@@ -7,9 +7,9 @@ local moduleNames =
 {
 	"perlin",
 	"transform",
-	"warp",
-	"colorize",
-	"decolorize"
+	"warp"--,
+	-- "colorize",
+	-- "decolorize"
 }
 
 
@@ -19,7 +19,7 @@ local moduleNames =
 local nodes = {}
 
 for _,modname in ipairs(moduleNames) do
-	local mod = terralib.require(string.format("tex.nodes.%s", modname))
+	local mod = terralib.require(string.format("tex.functions.%s", modname))
 	for k,v in pairs(mod) do
 		nodes[k] = v
 	end

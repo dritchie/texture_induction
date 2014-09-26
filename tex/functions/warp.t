@@ -1,7 +1,7 @@
 local S = terralib.require("qs.lib.std")
-local node = terralib.require("tex.nodes.node")
+local node = terralib.require("tex.functions.node")
 local Vec = terralib.require("utils.linalg.vec")
-local finitediff = terralib.require("tex.nodes.finitediff")
+local finitediff = terralib.require("tex.functions.finitediff")
 
 
 -- Transforms the input coordinate by the discrete derivative of its second

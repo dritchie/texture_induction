@@ -1,6 +1,6 @@
 local Vec = terralib.require("utils.linalg.vec")
 local randTables = terralib.require("tex.randTables")
-local node = terralib.require("tex.nodes.node")
+local node = terralib.require("tex.functions.node")
 local noise = terralib.require("tex.noise")
 
 local GradientTable = randTables.GradientTable
