@@ -82,6 +82,11 @@ Vec = S.memoize(function(real, dim, GPU)
 	terra VecT:__copy(other: &VecT)
 		[entryList(self)] = [entryList(other)]
 	end
+	-- Create a vector with less syntax
+	VecT.methods.create = macro(function(...)
+		local args = {...}
+		return `@VecT.salloc():init([args])
+	end)
 
 	-- Apply metamethod does element access (as a macro, so you can both
 	--    read and write elements this way)

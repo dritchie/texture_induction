@@ -7,7 +7,9 @@ local moduleNames =
 {
 	"perlin",
 	"transform",
-	"warp"	
+	"warp",
+	"colorize",
+	"decolorize"
 }
 
 
