@@ -25,12 +25,8 @@ Node = S.memoize(function(real, nchannels, GPU)
 
 	-- IMPORTANT: All output channels of all nodes should always be in the range (0, 1)
 
-	-- We support grayscale, color, and coordinate nodes.
-	local isGrayscale = (nchannels == 1)
-	local isCoordinate = (nchannels == 2)
-	local isColor = (nchannels == 4)
-	if not (isGrayscale or isCoordinate or isColor) then
-		error(string.format("Node: nchannels was %s. Supported values are 1 (grayscale), 2 (coordinate), and 4 (color)",
+	if nchannels < 1 or nchannels > 4 then
+		error(string.format("Node: nchannels was %d. Supported values are 1, 2, 3, and 4",
 			nchannels))
 	end
 
@@ -78,15 +74,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		self:initmembers()
 		self.typeID = 0		-- Subclasses should set this to a positive value
 		S.assert(registers ~= nil)
-		escape
-			if isGrayscale then
-				emit quote self.imagePool = &registers.grayscaleRegisters end
-			elseif isCoordinate then
-				emit quote self.imagePool = &registers.coordinateRegisters end
-			elseif isColor then
-				emit quote self.imagePool = &registers.colorRegisters end
-			end
-		end
+		self.imagePool = &registers.[string.format("vec%dRegisters",nchannels)]
 		self.nOutputs = 0
 		self.nOutputsRemaining = 0
 	end

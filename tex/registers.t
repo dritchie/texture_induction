@@ -7,9 +7,10 @@ local Registers = S.memoize(function(real, GPU)
 
 	local struct Registers(S.Object)
 	{
-		grayscaleRegisters: ImagePool(real, 1, GPU),
-		colorRegisters: ImagePool(real, 4, GPU),
-		coordinateRegisters: ImagePool(real, 2, GPU)
+		vec1Registers: ImagePool(real, 1, GPU),
+		vec2Registers: ImagePool(real, 2, GPU),
+		vec3Registers: ImagePool(real, 3, GPU),
+		vec4Registers: ImagePool(real, 4, GPU)
 	}
 
 	return Registers

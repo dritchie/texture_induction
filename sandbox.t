@@ -79,7 +79,7 @@ local GPU = true
 -- 		var perlin = [fns.PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
 -- 						gradients, frequency, lacunarity, persistence, 0, octaves)
 -- 		program:setOuputNode(perlin)
--- 		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
+-- 		var tex = registers.vec1Registers:fetch(IMG_SIZE, IMG_SIZE)
 
 -- 		-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
 -- 		-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
@@ -99,7 +99,7 @@ local GPU = true
 -- 			end
 -- 		end
 
--- 		registers.grayscaleRegisters:release(tex)
+-- 		registers.vec1Registers:release(tex)
 -- 		return frequency, lacunarity, persistence, octaves
 -- 	end
 
@@ -162,7 +162,7 @@ print("Total time: ", t2-t0)
 
 
 local terra test()
-	var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
+	var tex = registers.vec1Registers:fetch(IMG_SIZE, IMG_SIZE)
 
 	-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
 	-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
@@ -180,7 +180,7 @@ local terra test()
 		end
 	end
 
-	registers.grayscaleRegisters:release(tex)
+	registers.vec1Registers:release(tex)
 
 end
 test()
