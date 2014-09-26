@@ -16,10 +16,10 @@ local GradientTable = randTables.GradientTable
 -- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
 
 
-local PerlinNode = node.makeNodeFromFunc(function(real, GPU)
+local PerlinNode = node.makeNodeFromFunc("PerlinNode", function(real, GPU)
 	local Coord = Vec(real, 2, GPU)
 	return terra(coord: Coord, gradients: GradientTable(real, GPU),
-				 frequency: real, lacunarity: real, persistence: real, octaves: uint)
+				 frequency: real, lacunarity: real, persistence: real, startOctave: uint, nOctaves: uint)
 		var x = coord(0)
 		var y = coord(1)
 		x = x * frequency
@@ -27,7 +27,7 @@ local PerlinNode = node.makeNodeFromFunc(function(real, GPU)
 		var persist = real(1.0)
 		var value = real(0.0)
 
-		for octave=0,octaves do
+		for octave=startOctave,nOctaves do
 			value = value + (persist * [noise.gradientCoherent(real, GPU)](x, y, octave, gradients))
 			persist = persist * persistence
 			x = x * lacunarity
@@ -36,8 +36,8 @@ local PerlinNode = node.makeNodeFromFunc(function(real, GPU)
 
 		-- Transform value from (-1, 1) to (0, 1)
 		return (value + 1) * 0.5
-	end
-end, {})
+	end, {}
+end)
 
 
 return

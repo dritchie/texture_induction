@@ -57,9 +57,22 @@ Node = S.memoize(function(real, nchannels, GPU)
 		nOutputs: uint,
 		nOutputsRemaining: uint
 	}
+	NodeT.metamethods.__typename = function(self)
+		local platform = GPU and "GPU" or "CPU"
+		return string.format("Node(%s, %d, %s)", real, nchannels, platform)
+	end
 
 	NodeT.OutputScalarType = OutputScalarType
 	NodeT.OutputVectorType = OutputVectorType
+
+	-- The type of a coordinate node (we have to take care not to accidentally
+	--    cause an infinite type recursion here)
+	local CoordNode
+	if nchannels == 2 then
+		CoordNode = NodeT
+	else
+		CoordNode = Node(real, 2, GPU)
+	end
 
 	terra NodeT:__init(registers: &Registers(real, GPU))
 		self:initmembers()
@@ -82,6 +95,13 @@ Node = S.memoize(function(real, nchannels, GPU)
 	--    destructors need to do something, they can.
 	terra NodeT:__destruct() : {} end
 	inherit.virtual(NodeT, "__destruct")
+
+	-- Create a shallow duplicate of this node (i.e. copies the contents of the node
+	--    itself, but the copy refers to inputs of the node by reference)
+	inherit.purevirtual(NodeT, "shallowDuplicate", {}->&NodeT)
+
+	-- Change the source from which this node receives its (x,y) coordinates
+	inherit.purevirtual(NodeT, "setCoordInputNode", {&CoordNode}->{})
 
 	-- Scalar interpretation is only possible under CPU execution
 	if not GPU then
@@ -142,6 +162,49 @@ Node = S.memoize(function(real, nchannels, GPU)
 	-- Standard Node metatype function + related utilities --
 	---------------------------------------------------------
 
+	-- Many texture nodes have input nodes; this utility allows easy creation of members for those
+	--    inputs, as well as getters/setters
+	local function defineInputs(nodeClass, numchannelsList)
+		assert(numchannelsList ~= nil,
+			"makeNodeFromFunc: number of channels for each input was not provided.")
+		-- Every node has a coordinate input
+		nodeClass.entries:insert({field="inputNode1", type=&CoordNode})
+		-- Getter
+		nodeClass.methods.getInputNode1 = terra(self: &nodeClass)
+			return self.inputNode1
+		end
+		-- Setter
+		nodeClass.methods.setInputNode1 = terra(self: &nodeClass, coord: &CoordNode)
+			if self.inputNode1 ~= nil then
+				self.inputNode1:decrementOutputCount()
+			end
+			self.inputNode1 = coord
+			coord:incrementOutputCount()
+		end
+		-- Then we add any additional inputs
+		for i,nchannels in ipairs(numchannelsList) do
+			local j = i+1	-- Since the coordinate node has index 1
+			local typ = &Node(real, nchannels, GPU)
+			-- Member
+			nodeClass.entries:insert({field=string.format("inputNode%d",j), type=typ})
+			-- Getter
+			local getter = terra(self: &nodeClass)
+				return self.[string.format("inputNode%d",j)]
+			end
+			nodeClass.methods[string.format("getInputNode%d",j)] = getter
+			-- Setter
+			local setter = terra(self: &nodeClass, input: typ)
+
+				if self.[string.format("inputNode%d",j)] ~= nil then
+					self.[string.format("inputNode%d",j)]:decrementOutputCount()
+				end
+				self.[string.format("inputNode%d",j)] = input
+				input:incrementOutputCount()
+			end
+			nodeClass.methods[string.format("setInputNode%d",j)] = setter
+		end
+	end
+
 	local function stringStartsWith(str, prefix)
 	   return string.sub(str, 1, string.len(prefix)) == prefix
 	end
@@ -182,56 +245,6 @@ Node = S.memoize(function(real, nchannels, GPU)
 		return lst
 	end
 	NodeT.getParamEntries = getParamEntries
-
-	-- Add the coordinate input member to a node class
-	local function addCoordinateInput(nodeClass)
-		-- Member
-		nodeClass.entries:insert({field="inputNode1", type=&Node(real, 2, GPU)})
-		-- Getter
-		nodeClass.methods.getInputNode1 = terra(self: &nodeClass)
-			return self.inputNode1
-		end
-		-- Setter
-		nodeClass.methods.setInputNode1 = terra(self: &nodeClass, coord: &Node(real, 2, GPU))
-			if self.inputNode1 ~= nil then
-				self.inputNode1:decrementOutputCount()
-			end
-			self.inputNode1 = coord
-			coord:incrementOutputCount()
-		end
-	end
-
-	-- Many texture nodes have input nodes; this utility allows easy creation of members for those
-	--    inputs, as well as getters/setters
-	function NodeT.defineInputs(nodeClass, numchannelsList)
-		-- Throw an error if the class hasn't had coordinate input added to it; this must be added before
-		--    any other inputs
-		local inputs = getInputEntries(nodeClass)
-		assert(#inputs == 1 and inputs[1].field == "inputNode1",
-			string.format("%s.defineInputs called on node class %s which is not using the standard metatype.",
-				tostring(NodeT), tostring(nodeClass)))
-		for i,nchannels in ipairs(numchannelsList) do
-			local j = i+1	-- Since the coordinate node has index 1
-			local typ = &Node(real, nchannels, GPU)
-			-- Member
-			nodeClass.entries:insert({field=string.format("inputNode%d",j), type=typ})
-			-- Getter
-			local getter = terra(self: &nodeClass)
-				return self.[string.format("inputNode%d",j)]
-			end
-			nodeClass.methods[string.format("getInputNode%d",j)] = getter
-			-- Setter
-			local setter = terra(self: &nodeClass, input: typ)
-
-				if self.[string.format("inputNode%d",j)] ~= nil then
-					self.[string.format("inputNode%d",j)]:decrementOutputCount()
-				end
-				self.[string.format("inputNode%d",j)] = input
-				input:incrementOutputCount()
-			end
-			nodeClass.methods[string.format("setInputNode%d",j)] = setter
-		end
-	end
 
 	-- If the number of channels is 1, then 'eval' returns real and we need
 	--    to convert that to a Vec(real, 1) to be consistent with downstream code.
@@ -372,13 +385,13 @@ Node = S.memoize(function(real, nchannels, GPU)
 		end
 	end)
 
-	function NodeT.Metatype(nodeClass)
+	function NodeT.Metatype(nodeClass, inputNChannelsList)
 
 		nodeClass.NodeTypeID = nodeTypeID
 		idToType[nodeTypeID] = nodeClass
 		nodeTypeID = nodeTypeID + 1
 
-		addCoordinateInput(nodeClass)
+		defineInputs(nodeClass, inputNChannelsList)
 
 		addEvalSelf(nodeClass)
 
@@ -404,10 +417,13 @@ end)
 
 
 -- Make a node subclass from an eval function template
-local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
+-- The template should return the eval function, as well as a table containing the number
+--    of channels for each of the node's inputs.
+-- For a node with no inputs (beyond the obligatory coordinate), return an empty table.
+local function makeNodeFromFunc(nodeName, fnTemplate)
 	return S.memoize(function(...)
 		local args = {...}
-		local evalFn = fnTemplate(...)
+		local evalFn, inputNChannelsList = fnTemplate(...)
 		evalFn:setinlined(true)
 		local evalFnType = evalFn:gettype()
 		assert(inputNChannelsList ~= nil,
@@ -431,6 +447,14 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 
 		-- Set up struct
 		local struct NodeClass(S.Object) {}
+		NodeClass.metamethods.__typename = function(self)
+			local platform = GPU and "GPU" or "CPU"
+			if #args == 3 then
+				return string.format("%s(%s, %d, %s)", nodeName, real, nchannels, platform)
+			else
+				return string.format("%s(%s, %s)", nodeName, real, platform)
+			end
+		end
 		local ParentNodeType = Node(real, nchannels, GPU)
 		inherit.dynamicExtend(ParentNodeType, NodeClass)
 		NodeClass.ParentNodeType = ParentNodeType
@@ -451,10 +475,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		end
 
 		-- Now that we have the parameters as struct entries, we can apply the metatype
-		ParentNodeType.Metatype(NodeClass)
-
-		-- With the metatype applied, we can define the inputs to the node
-		ParentNodeType.defineInputs(NodeClass, inputNChannelsList)
+		ParentNodeType.Metatype(NodeClass, inputNChannelsList)
 
 		-- Constructor just stores the inputs and parameters (as well as the ever-present
 		--    vector registers)
@@ -491,6 +512,34 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		end
 		inherit.virtual(NodeClass, "__destruct")
 
+		-- Shallow copying. Pretty straightforward, except there's a little extra bookkeeping to
+		--    ensure that all the node's inputs record the fact that they now have one more output
+		--    (the node resulting from the copy)
+		terra NodeClass:__copy(other: &NodeClass)
+			self:copymembers(other)
+			escape
+				local inputs = ParentNodeType.getInputEntries(NodeClass)
+				for i,ie in ipairs(inputs) do
+					emit quote
+						-- First, nil out the field, then call setInputNode
+						self.[ie.field] = nil
+						self:[string.format("setInputNode%d",i)](other.[ie.field])
+					end
+				end
+			end
+		end
+
+		-- Duplicator method does the obvious thing
+		terra NodeClass:shallowDuplicate() : &ParentNodeType
+			return NodeClass.alloc():copy(self)
+		end
+		inherit.virtual(NodeClass, "shallowDuplicate")
+
+		terra NodeClass:setCoordInputNode(coordSource: &Node(real, 2, GPU)) : {}
+			self:setInputNode1(coordSource)
+		end
+		inherit.virtual(NodeClass, "setCoordInputNode")
+
 		-- Add a factory function that will heap allocate a new instance
 		local success, inittype = NodeClass.methods.__init:peektype()
 		assert(success, "makeNodeFromFunc: Couldn't peektype the __init method--this should be impossible...")
@@ -498,7 +547,7 @@ local function makeNodeFromFunc(fnTemplate, inputNChannelsList)
 		for i=2,#inittype.parameters do   -- Start at i=2 to skip the 'self' parameter
 			argSyms:insert(symbol(inittype.parameters[i]))
 		end
-		NodeClass.methods.create = terra([argSyms]) return NodeClass.alloc():init([argSyms]) end
+		NodeClass.methods.create = terra([argSyms]) : &NodeClass return NodeClass.alloc():init([argSyms]) end
 
 		return NodeClass
 

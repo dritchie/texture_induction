@@ -77,7 +77,7 @@ local GPU = true
 
 -- 		var program = [Program(qs.real, 1, GPU)].salloc():init(&registers)
 -- 		var perlin = [nodes.PerlinNode(qs.real, GPU)].create(&registers, program:getInputCoordNode(),
--- 						gradients, frequency, lacunarity, persistence, octaves)
+-- 						gradients, frequency, lacunarity, persistence, 0, octaves)
 -- 		program:setOuputNode(perlin)
 -- 		var tex = registers.grayscaleRegisters:fetch(IMG_SIZE, IMG_SIZE)
 
@@ -137,13 +137,17 @@ local program = global(Program(double, 1, GPU))
 local terra initGlobals()
 	registers:init()
 	program:init(&registers)
-	var xform = [nodes.TransformNode(double, GPU)].create(&registers, program:getInputCoordNode(),
+	var coords = program:getInputCoordNode()
+	var warpField = [nodes.PerlinNode(double, GPU)].create(&registers, coords,
+												  		gradients, 1.0, 3.0, 0.75, 0, 2)
+	var warp = [nodes.WarpNode(double, GPU)].create(&registers, coords,
+													warpField, 0.05)
+	var stretchXform = [nodes.TransformNode(double, GPU)].create(&registers, warp,
 														  Mat3.scale(10.0, 1.0))
-	var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, xform,
-												  		gradients, 1.0, 3.0, 0.75, 6)
-	-- var perlin = [nodes.PerlinNode(double, GPU)].create(&registers, program:getInputCoordNode(),
-	-- 											  		gradients, 1.0, 3.0, 0.75, 6)
-	program:setOuputNode(perlin)
+
+	var woodNoise = [nodes.PerlinNode(double, GPU)].create(&registers, stretchXform,
+												  		   gradients, 1.0, 3.0, 0.75, 0, 6)
+	program:setOuputNode(woodNoise)
 end
 initGlobals()
 

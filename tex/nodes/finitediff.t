@@ -9,22 +9,22 @@ local Vec = terralib.require("utils.linalg.vec")
 --    nodes defined in this file just perform that coordinate perturbation. 
 
 
-local XShiftNode = node.makeNodeFromFunc(function(real, GPU)
+local XShiftNode = node.makeNodeFromFunc("XShiftNode", function(real, GPU)
 	local Coord = Vec(real, 2, GPU)
 	return terra(coord: Coord, shiftamt: real)
 		coord(0) = coord(0) + shiftamt
 		return coord	
-	end
-end, {})
+	end, {}
+end)
 
 
-local YShiftNode = node.makeNodeFromFunc(function(real, GPU)
+local YShiftNode = node.makeNodeFromFunc("YShiftNode", function(real, GPU)
 	local Coord = Vec(real, 2, GPU)
 	return terra(coord: Coord, shiftamt: real)
 		coord(1) = coord(1) + shiftamt
 		return coord	
-	end
-end, {})
+	end, {}
+end)
 
 
 

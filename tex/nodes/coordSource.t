@@ -32,12 +32,22 @@ local CoordSourceNode = S.memoize(function(real, GPU)
 		vectorCoordYlo: real,
 		vectorCoordYhi: real,
 	}
+	CoordSourceNode.metamethods.__typename = function(self)
+		local platform = GPU and "GPU" or "CPU"
+		return string.format("CoordSourceNode(%s, %s)", real, platform)
+	end
 	local ParentNodeType = Node(real, 2, GPU)
 	inherit.dynamicExtend(ParentNodeType, CoordSourceNode)
 
 	terra CoordSourceNode:__init(registers: &Registers(real, GPU))
 		ParentNodeType.__init(self, registers)
 	end
+
+	-- Not implementing the shallowDuplicate virtual method, because this node should
+	--    never be duplicated.
+
+	-- Also not implementing setCoordInputNode, because this node is the root of the
+	--    coordinate transformation graph. It is the root of all inputs.
 
 	terra CoordSourceNode:setScalarCoord(x: real, y: real) : {}
 		self.scalarCoord(0) = x

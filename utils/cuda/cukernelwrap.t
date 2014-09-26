@@ -4,7 +4,6 @@
 -- All occurrences of struct(or array)-by-value are unpacked before being passed in
 --    and then re-packed once inside the function.
 return function(terrafn, verbose)
-	-- Workaround for NVPTX issues with generating code for structs passed by value.
 	terrafn:setinlined(true)
 	terrafn:emitllvm()	-- To guarantee we have a type
 	local succ, T = terrafn:peektype()
@@ -63,7 +62,9 @@ return function(terrafn, verbose)
 
 	-- We return a wrapper around the kernel that takes the original arguments, unpacks
 	--    them, then calls the kernel.
-	return terra(kernelparams: &terralib.CUDAParams, [outersyms]) : {}
+	local terra wrapper(kernelparams: &terralib.CUDAParams, [outersyms]) : {}
 		K.kernel(kernelparams, [unpackExprs])
 	end
+	wrapper:setinlined(true)
+	return wrapper
 end

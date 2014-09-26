@@ -22,7 +22,7 @@ local function setParent(child, parent)
 	local md = metadata[child]
 	if md then
 		if md.parent then
-			error(string.format("'%s' already inherits from some type -- multiple inheritance not allowed.", child.name))
+			error(string.format("'%s' already inherits from some type -- multiple inheritance not allowed.", child))
 		end
 		md.parent = parent
 	else
@@ -34,7 +34,7 @@ local function castoperator(from, to, exp)
 	if from:ispointer() and to:ispointer() and issubclass(from.type, to.type) then
 		return `[to](exp)
 	else
-		error(string.format("'%s' does not inherit from '%s'", from.type.name, to.type.name))
+		error(string.format("'%s' does not inherit from '%s'", from.type, to.type))
 	end
 end
 
@@ -255,7 +255,7 @@ local function createunimplementedstub(class, methodname, typ)
 	local symbols = typ.parameters:map(symbol)
 	local obj = symbols[1]
 	local terra wrapper([symbols]) : typ.returntype
-		S.printf("Pure virtual function '%s' not implemented in class '%s'\n", methodname, [class.name])
+		S.printf("Pure virtual function '%s' not implemented in class '%s'\n", methodname, [tostring(class)])
 		S.assert(false)
 	end
 	return wrapper
