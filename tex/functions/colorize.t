@@ -8,14 +8,13 @@ local MAX_NUM_GRAD_POINTS = 10
 
 
 local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
-	local Coord = Vec(real, 2, GPU)
 	local Vec1 = Vec(real, 1, GPU)
 	local RGBColor = Vec(real, 3, GPU)
 	local RGBAColor = Vec(real, 4, GPU)
 	local GradKnots = real[MAX_NUM_GRAD_POINTS]
 	local GradColors = RGBAColor[MAX_NUM_GRAD_POINTS]
 	local lerp = macro(function(lo, hi, t) return `(1.0-t)*lo + t*hi end)
-	return terra(coord: Coord, input: Vec1, knots: GradColors, colors: GradColors, n: uint, alpha: real)
+	return terra(input: Vec1, knots: GradColors, colors: GradColors, n: uint, alpha: real)
 		var val = input(0)
 		var outcolor_rgb : RGBColor
 		for i=0,n do

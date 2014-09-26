@@ -21,34 +21,34 @@ local WarpNode = node.makeNodeFromFunc("WarpNode", function(real, GPU)
 		coord(0) = coord(0) + dx(0)
 		coord(1) = coord(1) + dy(0)
 		return coord
-	end, {1, 1, 1}
+	end, {2, 1, 1, 1}
 end)
 
 
-local WarpNodeWrapper = S.memoize(function(real, GPU)
-	local WarpNodeT = WarpNode(real, GPU)
-	local rawCreate = WarpNodeT.methods.create
-	local succ, T = rawCreate:peektype()
-	local Registers = T.parameters[1]
-	local CoordNode = T.parameters[2]
-	local GrayscaleNode = T.parameters[3]
-	WarpNodeT.methods.create = terra(registers: Registers, coordNode: CoordNode, inputNode: GrayscaleNode, strength: real)
-		-- Create subgraph that computes values needed for discrete derivatives
-		var dxNode = [finitediff.XShiftNode(real, GPU)].create(registers, coordNode, DELTA)
-		var dyNode = [finitediff.YShiftNode(real, GPU)].create(registers, coordNode, DELTA)
-		-- return rawCreate(registers, coordNode, inputNode, dxNode, dyNode, strength)
-		var inputDxNode = inputNode:shallowDuplicate()
-		var inputDyNode = inputNode:shallowDuplicate()
-		inputDxNode:setCoordInputNode(dxNode)
-		inputDyNode:setCoordInputNode(dyNode)
-		-- Pass these 'hidden' nodes into the original node creation method
-		return rawCreate(registers, coordNode, inputNode, inputDxNode, inputDyNode, strength)
-	end
-	return WarpNodeT
-end)
+-- local WarpNodeWrapper = S.memoize(function(real, GPU)
+-- 	local WarpNodeT = WarpNode(real, GPU)
+-- 	local rawCreate = WarpNodeT.methods.create
+-- 	local succ, T = rawCreate:peektype()
+-- 	local Registers = T.parameters[1]
+-- 	local CoordNode = T.parameters[2]
+-- 	local GrayscaleNode = T.parameters[3]
+-- 	WarpNodeT.methods.create = terra(registers: Registers, coordNode: CoordNode, inputNode: GrayscaleNode, strength: real)
+-- 		-- Create subgraph that computes values needed for discrete derivatives
+-- 		var dxNode = [finitediff.XShiftNode(real, GPU)].create(registers, coordNode, DELTA)
+-- 		var dyNode = [finitediff.YShiftNode(real, GPU)].create(registers, coordNode, DELTA)
+-- 		-- return rawCreate(registers, coordNode, inputNode, dxNode, dyNode, strength)
+-- 		var inputDxNode = inputNode:shallowDuplicate()
+-- 		var inputDyNode = inputNode:shallowDuplicate()
+-- 		inputDxNode:setCoordInputNode(dxNode)
+-- 		inputDyNode:setCoordInputNode(dyNode)
+-- 		-- Pass these 'hidden' nodes into the original node creation method
+-- 		return rawCreate(registers, coordNode, inputNode, inputDxNode, inputDyNode, strength)
+-- 	end
+-- 	return WarpNodeT
+-- end)
 
 
 return
 {
-	WarpNode = WarpNodeWrapper
+	WarpNode = WarpNode
 }

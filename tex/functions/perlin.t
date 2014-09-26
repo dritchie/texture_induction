@@ -36,7 +36,7 @@ local PerlinNode = node.makeNodeFromFunc("PerlinNode", function(real, GPU)
 
 		-- Transform value from (-1, 1) to (0, 1)
 		return (value + 1) * 0.5
-	end, {}
+	end, {2}
 end)
 
 

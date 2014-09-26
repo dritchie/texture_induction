@@ -43,12 +43,6 @@ local CoordSourceNode = S.memoize(function(real, GPU)
 		ParentNodeType.__init(self, registers)
 	end
 
-	-- Not implementing the shallowDuplicate virtual method, because this node should
-	--    never be duplicated.
-
-	-- Also not implementing setCoordInputNode, because this node is the root of the
-	--    coordinate transformation graph. It is the root of all inputs.
-
 	terra CoordSourceNode:setScalarCoord(x: real, y: real) : {}
 		self.scalarCoord(0) = x
 		self.scalarCoord(1) = y

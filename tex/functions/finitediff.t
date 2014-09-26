@@ -14,7 +14,7 @@ local XShiftNode = node.makeNodeFromFunc("XShiftNode", function(real, GPU)
 	return terra(coord: Coord, shiftamt: real)
 		coord(0) = coord(0) + shiftamt
 		return coord	
-	end, {}
+	end, {2}
 end)
 
 
@@ -23,7 +23,7 @@ local YShiftNode = node.makeNodeFromFunc("YShiftNode", function(real, GPU)
 	return terra(coord: Coord, shiftamt: real)
 		coord(1) = coord(1) + shiftamt
 		return coord	
-	end, {}
+	end, {2}
 end)
 
 
