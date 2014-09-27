@@ -1,6 +1,9 @@
+local S = terralib.require("qs.lib.std")
 local node = terralib.require("tex.functions.node")
 local Vec = terralib.require("utils.linalg.vec")
 local Mat = terralib.require("utils.linalg.mat")
+local Function = terralib.require("tex.functions.function")
+local inherit = terralib.require("utils.inheritance")
 
 
 local TransformNode = node.makeNodeFromFunc("TransformNode", function(real, GPU)
@@ -12,7 +15,31 @@ local TransformNode = node.makeNodeFromFunc("TransformNode", function(real, GPU)
 end)
 
 
+local Transform = S.memoize(function(real, nchannels, GPU)
+
+	local BaseFunction = Function(real, nchannels, GPU)
+	local Mat3 = Mat(real, 3, 3, GPU)
+	local Transform = BaseFunction.makeDefaultSubtype(
+	"Transform",
+	{
+		{input = nchannels}
+	},
+	{
+		{xform = Mat3}
+	})
+
+	terra Transform:expand(coordNode: &Transform.CoordNode) : &Transform.OutputNode
+		var tnode = [TransformNode(real, GPU)].alloc():init(self.registers, coordNode, self.xform)
+		return self.input:expand(tnode)
+	end
+	inherit.virtual(Transform, "expand")
+
+	return Transform
+
+end)
+
+
 return
 {
-	TransformNode = TransformNode
+	Transform = Transform
 }

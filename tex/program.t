@@ -5,6 +5,7 @@ local image = terralib.require("utils.image")
 local CUDAImage = terralib.require("utils.cuda.cuimage")
 local Registers = terralib.require("tex.registers")
 local CoordSourceNode = terralib.require("tex.functions.coordSource")
+local Function = terralib.require("tex.functions.function")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
 local cudaWrapKernel = terralib.require("utils.cuda.cukernelwrap")
@@ -39,14 +40,6 @@ local cudaDeviceProps = getCUDADeviceProps()
 --    only available for the CPU.
 local Program = S.memoize(function(real, nOutChannels, GPU)
 
-	-- A program can have grayscale or color output
-	local isGrayscale = (nOutChannels == 1)
-	local isColor = (nOutChannels == 4)
-	if not (isGrayscale or isColor) then
-		error(string.format("Program: nOutChannels was %s. Supported values are 1 (grayscale)  and 4 (color)",
-			nOutChannels))
-	end
-
 	local Image
 	if GPU then
 		Image = CUDAImage(real, nOutChannels)
@@ -61,34 +54,16 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 		outputNode: &Node(real, nOutChannels, GPU)
 	}
 
-	terra Program:__init(registers: &Registers(real, GPU))
+	terra Program:__init(registers: &Registers(real, GPU), rootFn: &Function(real, nOutChannels, GPU))
 		self.inputCoordNode = [CoordSourceNode(real, GPU)].alloc():init(registers)
-		self.outputNode = nil
+		self.outputNode = rootFn:expand(self.inputCoordNode)
+		self.outputNode:incrementOutputCount()
+		rootFn:delete()
 	end
 
 	terra Program:__destruct()
-		-- If the output node is set, then invoke recursive delete.
-		-- The program graph is assumed to refer to self.inputCoordNode,
-		--    so we do not need to explicitly delete it.
-		if self.outputNode ~= nil then
-			self.outputNode:delete()
-		-- Otherwise, we need to explicitly delete self.inputCoordNode.
-		-- (Corresponds to deleting an 'empty' program)
-		else
-			self.inputCoordNode:delete()
-		end
-	end
-
-	-- Retrieve a pointer to the coord source node for this program.
-	terra Program:getInputCoordNode() return self.inputCoordNode end
-
-	-- Output node must be set before the program can be executed.
-	terra Program:setOuputNode(outnode: &Node(real, nOutChannels, GPU))
-		if self.outputNode ~= nil then
-			self.outputNode:decrementOutputCount()
-		end
-		self.outputNode = outnode
-		outnode:incrementOutputCount()
+		-- This will in turn recursively delete the inputCoordNode
+		self.outputNode:delete()
 	end
 
 	-- The scalar interpreter
@@ -212,7 +187,7 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 		local selfExpr = `selfsymbol.outputNode
 
 		-- We seed the immCache with a symbol that refers to the input (x,y) coordinate.
-		local inputNodeID = tostring(terralib.cast(uint64, program:getInputCoordNode()))
+		local inputNodeID = tostring(terralib.cast(uint64, program.inputCoordNode))
 		local coordSym = symbol(Vec(real, 2, GPU))
 		immCache[inputNodeID] = coordSym
 

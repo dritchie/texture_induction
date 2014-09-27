@@ -1,10 +1,14 @@
 local S = terralib.require("qs.lib.std")
 local node = terralib.require("tex.functions.node")
 local Vec = terralib.require("utils.linalg.vec")
+local Function = terralib.require("tex.functions.function")
+local inherit = terralib.require("utils.inheritance")
+
 
 
 -- TODO: Store gradient points in constant memory instead?
 local MAX_NUM_GRAD_POINTS = 10
+
 
 
 local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
@@ -17,11 +21,15 @@ local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
 	return terra(input: Vec1, knots: GradColors, colors: GradColors, n: uint, alpha: real)
 		var val = input(0)
 		var outcolor_rgb : RGBColor
-		for i=0,n do
-			-- TODO: How much branch divergence does this cause?
-			if knots[i] < val then
-				outcolor_rgb = lerp(knots[i], knots[i+1], (val-knots[i])/(knots[i+1]-knots[i]))
-				break
+		if n == 1 then
+			outcolor_rgb = colors[0]
+		else
+			for i=0,n do
+				-- TODO: How much branch divergence does this cause?
+				if knots[i] < val then
+					outcolor_rgb = lerp(knots[i], knots[i+1], (val-knots[i])/(knots[i+1]-knots[i]))
+					break
+				end
 			end
 		end
 		return RGBAColor.create(outcolor_rgb(0), outcolor_rgb(1), outcolor_rgb(2), val*alpha)
@@ -29,27 +37,37 @@ local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
 end)
 
 
--- Wrapper that allows use of standard Vectors to store grad info
-local ColorizeNodeWrapper = S.memoize(function(real, GPU)
-	local ColorizeNodeT = ColorizeNode(real, GPU)
-	local rawCreate = ColorizeNodeT.methods.create
-	local succ, T = rawCreate:peektype()
-	local Registers = T.parameters[1]
-	local CoordNode = T.parameters[2]
-	local GrayscaleNode = T.parameters[3]
+local Colorize = S.memoize(function(real, GPU)
+
 	local RGBColor = Vec(real, 3, GPU)
 	local RGBAColor = Vec(real, 4, GPU)
 	local GradKnots = real[MAX_NUM_GRAD_POINTS]
 	local GradColors = RGBAColor[MAX_NUM_GRAD_POINTS]
-	ColorizeNodeT.methods.create = terra(registers: Registers, coordNode: CoordNode, inputNode: GrayscaleNode,
-										 knots: &S.Vector(real), colors: &S.Vector(RGBColor), alpha: real)
-		if knots:size() ~= colors:size() then
-			S.printf("ColorizeNode: Must have same number of knots and colors\n")
+
+	local BaseFunction = Function(real, 1, GPU)
+	local Colorize = BaseFunction.makeDefaultSubtype(
+	"Colorize",
+	{
+		{input = 1}
+	},
+	{
+		{knots = S.Vector(real)},
+		{colors = S.Vector(RGBColor)},
+		{alpha = real}
+	})
+
+	terra Colorize:expand(coordNode: &Colorize.CoordNode) : &Colorize.OutputNode
+		if self.knots:size() ~= self.colors:size() then
+			S.printf("Colorize: Must have same number of knots and colors\n")
 			S.assert(false)
 		end
-		var n = knots:size()
+		var n = self.knots:size()
+		if n == 0 then
+			S.printf("Colorize: no gradient points provided.\n")
+			S.assert(false)
+		end
 		if n > MAX_NUM_GRAD_POINTS then
-			S.printf("ColorizeNode: Too many gradient points (maximum number is %d)\n", MAX_NUM_GRAD_POINTS)
+			S.printf("Colorize: Too many gradient points (maximum number is %d)\n", MAX_NUM_GRAD_POINTS)
 			S.assert(false)
 		end
 		var _knots : GradKnots
@@ -58,13 +76,18 @@ local ColorizeNodeWrapper = S.memoize(function(real, GPU)
 			_knots[i] = knots(i)
 			_colors[i] = colors(i)
 		end
-		return rawCreate(registers, coordNode, inputNode, _knots, _colors, n, alpha)
+		return [ColorizeNode(real, GPU)].alloc():init(self.registers, self.input:expand(coordNode),
+													  _knots, _colors, n, self.alpha)
 	end
-	return ColorizeNodeT
+	inherit.virtual(Colorize, "expand")
+
+	return Colorize
+
 end)
+
 
 
 return
 {
-	ColorizeNode = ColorizeNodeWrapper
+	Colorize = Colorize
 }

@@ -1,7 +1,10 @@
+local S = terralib.require("qs.lib.std")
 local Vec = terralib.require("utils.linalg.vec")
 local randTables = terralib.require("tex.randTables")
 local node = terralib.require("tex.functions.node")
 local noise = terralib.require("tex.noise")
+local Function = terralib.require("tex.functions.function")
+local inherit = terralib.require("utils.inheritance")
 
 local GradientTable = randTables.GradientTable
 
@@ -40,8 +43,34 @@ local PerlinNode = node.makeNodeFromFunc("PerlinNode", function(real, GPU)
 end)
 
 
+local Perlin = S.memoize(function(real, GPU)
+
+	local BaseFunction = Function(real, 1, GPU)
+	local Perlin = BaseFunction.makeDefaultSubtype(
+	"Perlin",
+	{},
+	{
+		{gradients = GradientTable(real, GPU)},
+		{frequency = real},
+		{lacunarity = real},
+		{persistence = real},
+		{startOctave = uint},
+		{nOctaves = uint}
+	})
+
+	terra Perlin:expand(coordNode: &Perlin.CoordNode) : &Perlin.OutputNode
+		return [PerlinNode(real, GPU)].alloc():init(self.registers, coordNode, self.gradients, self.frequency, 
+								self.lacunarity, self.persistence, self.startOctave, self.nOctaves)
+	end
+	inherit.virtual(Perlin, "expand")
+
+	return Perlin
+
+end)
+
+
 return
 {
-	PerlinNode = PerlinNode
+	Perlin = Perlin
 }
 

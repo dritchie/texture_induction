@@ -61,15 +61,6 @@ Node = S.memoize(function(real, nchannels, GPU)
 	NodeT.OutputScalarType = OutputScalarType
 	NodeT.OutputVectorType = OutputVectorType
 
-	-- The type of a coordinate node (we have to take care not to accidentally
-	--    cause an infinite type recursion here)
-	local CoordNode
-	if nchannels == 2 then
-		CoordNode = NodeT
-	else
-		CoordNode = Node(real, 2, GPU)
-	end
-
 	terra NodeT:__init(registers: &Registers(real, GPU))
 		self:initmembers()
 		self.typeID = 0		-- Subclasses should set this to a positive value
@@ -472,15 +463,6 @@ local function makeNodeFromFunc(nodeName, fnTemplate)
 			end
 		end
 		inherit.virtual(NodeClass, "__destruct")
-
-		-- Add a factory function that will heap allocate a new instance
-		local success, inittype = NodeClass.methods.__init:peektype()
-		assert(success, "makeNodeFromFunc: Couldn't peektype the __init method--this should be impossible...")
-		local argSyms = terralib.newlist()
-		for i=2,#inittype.parameters do   -- Start at i=2 to skip the 'self' parameter
-			argSyms:insert(symbol(inittype.parameters[i]))
-		end
-		NodeClass.methods.create = terra([argSyms]) : &NodeClass return NodeClass.alloc():init([argSyms]) end
 
 		return NodeClass
 

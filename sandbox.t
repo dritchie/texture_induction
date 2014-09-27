@@ -136,18 +136,13 @@ local registers = global(Registers(double, GPU))
 local program = global(Program(double, 1, GPU))
 local terra initGlobals()
 	registers:init()
-	program:init(&registers)
-	var coords = program:getInputCoordNode()
-	-- var warpField = [fns.PerlinNode(double, GPU)].create(&registers, coords,
-	-- 											  		gradients, 1.0, 3.0, 0.75, 0, 2)
-	-- var warp = [fns.WarpNode(double, GPU)].create(&registers, coords,
-	-- 												warpField, 0.05)
 
-	var stretchXform = [fns.TransformNode(double, GPU)].create(&registers, coords,
-														  Mat3.scale(10.0, 1.0))
-	var woodNoise = [fns.PerlinNode(double, GPU)].create(&registers, stretchXform,
-												  		   gradients, 1.0, 3.0, 0.75, 0, 6)
-	program:setOuputNode(woodNoise)
+	var srcNoise = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 6)
+	var stretchedNoise = [fns.Transform(double, 1, GPU)].alloc():init(&registers, srcNoise, Mat3.scale(10.0, 1.0))
+	var warpField = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 2)
+	var woodNoise = [fns.Warp(double, 1, GPU)].alloc():init(&registers, stretchedNoise, warpField, 0.05)
+
+	program:init(&registers, woodNoise)
 end
 initGlobals()
 

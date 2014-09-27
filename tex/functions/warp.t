@@ -1,54 +1,50 @@
 local S = terralib.require("qs.lib.std")
 local node = terralib.require("tex.functions.node")
 local Vec = terralib.require("utils.linalg.vec")
-local finitediff = terralib.require("tex.functions.finitediff")
-
-
--- Transforms the input coordinate by the discrete derivative of its second
---    grayscale input
--- Implementation constructs a hidden sub-graph to compute the derivatives.
-
-
-local DELTA = 1.0/1024
+local Function = terralib.require("tex.functions.function")
+local inherit = terralib.require("utils.inheritance")
+local Derivative = terralib.require("tex.functions.derivative").Derivative
 
 
 local WarpNode = node.makeNodeFromFunc("WarpNode", function(real, GPU)
-	local Coord = Vec(real, 2, GPU)
-	local Vec1 = Vec(real, 1, GPU)
-	return terra(coord: Coord, input: Vec1, inputdx: Vec1, inputdy: Vec1, strength: real)
-		var dx = ((inputdx - input) / DELTA) * strength
-		var dy = ((inputdy - input) / DELTA) * strength
-		coord(0) = coord(0) + dx(0)
-		coord(1) = coord(1) + dy(0)
-		return coord
-	end, {2, 1, 1, 1}
+	local Vec2 = Vec(real, 2, GPU)
+	return terra(coord: Vec2, inputDeriv: Vec2, strength: real)
+		return coord + strength*inputDeriv
+	end, {2, 2}
 end)
 
 
--- local WarpNodeWrapper = S.memoize(function(real, GPU)
--- 	local WarpNodeT = WarpNode(real, GPU)
--- 	local rawCreate = WarpNodeT.methods.create
--- 	local succ, T = rawCreate:peektype()
--- 	local Registers = T.parameters[1]
--- 	local CoordNode = T.parameters[2]
--- 	local GrayscaleNode = T.parameters[3]
--- 	WarpNodeT.methods.create = terra(registers: Registers, coordNode: CoordNode, inputNode: GrayscaleNode, strength: real)
--- 		-- Create subgraph that computes values needed for discrete derivatives
--- 		var dxNode = [finitediff.XShiftNode(real, GPU)].create(registers, coordNode, DELTA)
--- 		var dyNode = [finitediff.YShiftNode(real, GPU)].create(registers, coordNode, DELTA)
--- 		-- return rawCreate(registers, coordNode, inputNode, dxNode, dyNode, strength)
--- 		var inputDxNode = inputNode:shallowDuplicate()
--- 		var inputDyNode = inputNode:shallowDuplicate()
--- 		inputDxNode:setCoordInputNode(dxNode)
--- 		inputDyNode:setCoordInputNode(dyNode)
--- 		-- Pass these 'hidden' nodes into the original node creation method
--- 		return rawCreate(registers, coordNode, inputNode, inputDxNode, inputDyNode, strength)
--- 	end
--- 	return WarpNodeT
--- end)
+local Warp = S.memoize(function(real, nchannels, GPU)
+
+	local BaseFunction = Function(real, nchannels, GPU)
+	local Warp = BaseFunction.makeDefaultSubtype(
+	"Warp",
+	{
+		{input = 1},
+		{warpField = 1}
+	},
+	{
+		{strength = real}
+	})
+
+	terra Warp:expand(coordNode: &Warp.CoordNode) : &Warp.OutputNode
+		var derivFn = [Derivative(real, GPU)].alloc():init(self.registers, self.warpField)
+		var derivNode = derivFn:expand(coordNode)
+		-- Delete temporary derivFn *without* deleting the functions beneath it
+		-- (Kind of hackish; would be more proper to persist derivFn as a member)
+		derivFn.input = nil
+		derivFn:delete()
+		var warpNode = [WarpNode(real, GPU)].alloc():init(self.registers, coordNode, derivNode, self.strength)
+		return self.input:expand(warpNode)
+	end
+	inherit.virtual(Warp, "expand")
+
+	return Warp
+
+end)
 
 
 return
 {
-	WarpNode = WarpNode
+	Warp = Warp
 }
