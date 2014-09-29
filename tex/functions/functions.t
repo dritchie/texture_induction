@@ -9,7 +9,9 @@ local moduleNames =
 	"transform",
 	"colorize",
 	"decolorize",
-	"warp"
+	"warp",
+	"blend",
+	"mask"
 }
 
 

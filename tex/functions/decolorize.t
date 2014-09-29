@@ -6,7 +6,6 @@ local inherit = terralib.require("utils.inheritance")
 
 
 local DecolorizeNode = node.makeNodeFromFunc("DecolorizeNode", function(real, GPU)
-	local Coord = Vec(real, 2, GPU)
 	local RGBAColor = Vec(real, 4, GPU)
 	return terra(input: RGBAColor)
 		-- Convert color to luma
