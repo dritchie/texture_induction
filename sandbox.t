@@ -126,28 +126,40 @@ local GPU = true
 
 ----------------------------------------------------------------------
 
--- Generating some noise
+-- Generating some example textures
+
+local OUT_NCHANNELS = 1
 
 local Mat = terralib.require("utils.linalg.mat")
+local Vec = terralib.require("utils.linalg.vec")
 local Mat3 = Mat(double, 3, 3, GPU)
+local RGBColor = Vec(double, 3, GPU)
 
 local gradients = randTables.const_gradients(double, GPU)
 local registers = global(Registers(double, GPU))
-local program = global(Program(double, 1, GPU))
+local program = global(Program(double, OUT_NCHANNELS, GPU))
 local terra initGlobals()
 	registers:init()
 
-	var srcNoise = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 6)
-	var stretchedNoise = [fns.Transform(double, 1, GPU)].alloc():init(&registers, srcNoise, Mat3.scale(10.0, 1.0))
-	var warpField = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 2)
-	var woodNoise = [fns.Warp(double, 1, GPU)].alloc():init(&registers, stretchedNoise, warpField, 0.05)
+	var perlin1 = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 6)
+	var stretched = [fns.Transform(double, 1, GPU)].alloc():init(&registers, perlin1, Mat3.scale(10.0, 1.0))
+	var perlin2 = [fns.Perlin(double, GPU)].alloc():init(&registers, gradients, 1.0, 3.0, 0.75, 0, 2)
+	var warped = [fns.Warp(double, 1, GPU)].alloc():init(&registers, stretched, perlin2, 0.05)
+	var knots = [S.Vector(double)].salloc():init()
+	knots:insert(0.0)
+	knots:insert(1.0)
+	var colors = [S.Vector(RGBColor)].salloc():init()
+	colors:insert(RGBColor.create(115.0/255, 50.0/255, 18.0/255))
+	colors:insert(RGBColor.create(232.0/255, 115.0/255, 42.0/255))
+	var colorized = [fns.Colorize(double, GPU)].alloc():init(&registers, warped, @knots, @colors, 1.0)
+	var decolorized = [fns.Decolorize(double, GPU)].alloc():init(&registers, colorized)
 
-	program:init(&registers, woodNoise)
+	program:init(&registers, decolorized)
 end
 initGlobals()
 
 local t0 = terralib.currenttimeinseconds()
-local compiledfn = Program(double, 1, GPU).methods.compile(program:getpointer())
+local compiledfn = Program(double, OUT_NCHANNELS, GPU).methods.compile(program:getpointer())
 local t1 = terralib.currenttimeinseconds()
 compiledfn:compile()
 local t2 = terralib.currenttimeinseconds()
@@ -156,8 +168,16 @@ print("Typechecking/compilation time: ", t2-t1)
 print("Total time: ", t2-t0)
 
 
+local outRegisters = macro(function()
+	if OUT_NCHANNELS == 1 then
+		return `registers.vec1Registers
+	else
+		return `registers.vec4Registers
+	end
+end)
+
 local terra test()
-	var tex = registers.vec1Registers:fetch(IMG_SIZE, IMG_SIZE)
+	var tex = outRegisters():fetch(IMG_SIZE, IMG_SIZE)
 
 	-- program:interpretScalar(tex, 0.0, 1.0, 0.0, 1.0)
 	-- program:interpretVector(tex, 0.0, 1.0, 0.0, 1.0)
@@ -165,17 +185,17 @@ local terra test()
 
 	escape
 		if not GPU then
-			emit quote [image.Image(double, 1).save(uint8)](tex, image.Format.PNG, "perlinTest.png") end
+			emit quote [image.Image(double, OUT_NCHANNELS).save(uint8)](tex, image.Format.PNG, "perlinTest.png") end
 		else
 			emit quote
-				var img = [image.Image(double, 1)].salloc():init()
+				var img = [image.Image(double, OUT_NCHANNELS)].salloc():init()
 				tex:toHostImg(img)
-				[image.Image(double, 1).save(uint8)](img, image.Format.PNG, "perlinTest_CUDA.png")
+				[image.Image(double, OUT_NCHANNELS).save(uint8)](img, image.Format.PNG, "perlinTest_CUDA.png")
 			end
 		end
 	end
 
-	registers.vec1Registers:release(tex)
+	outRegisters():release(tex)
 
 end
 test()

@@ -15,6 +15,10 @@ Function = S.memoize(function(real, nchannels, GPU)
 	{
 		registers: &Registers(real, GPU)
 	}
+	FunctionT.metamethods.__typename = function(self)
+		local platform = GPU and "GPU" or "CPU"
+		return string.format("Function(%s, %d, %s)", real, nchannels, platform)
+	end
 
 	terra FunctionT:__init(registers: &Registers(real, GPU))
 		self.registers = registers

@@ -16,7 +16,7 @@ end)
 
 local Decolorize = S.memoize(function(real, GPU)
 
-	local BaseFunction = Function(real, 4, GPU)
+	local BaseFunction = Function(real, 1, GPU)
 	local Decolorize = BaseFunction.makeDefaultSubtype(
 	"Decolorize",
 	{

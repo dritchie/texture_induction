@@ -16,9 +16,9 @@ local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
 	local RGBColor = Vec(real, 3, GPU)
 	local RGBAColor = Vec(real, 4, GPU)
 	local GradKnots = real[MAX_NUM_GRAD_POINTS]
-	local GradColors = RGBAColor[MAX_NUM_GRAD_POINTS]
+	local GradColors = RGBColor[MAX_NUM_GRAD_POINTS]
 	local lerp = macro(function(lo, hi, t) return `(1.0-t)*lo + t*hi end)
-	return terra(input: Vec1, knots: GradColors, colors: GradColors, n: uint, alpha: real)
+	return terra(input: Vec1, knots: GradKnots, colors: GradColors, n: uint, alpha: real)
 		var val = input(0)
 		var outcolor_rgb : RGBColor
 		if n == 1 then
@@ -27,7 +27,7 @@ local ColorizeNode = node.makeNodeFromFunc("ColorizeNode", function(real, GPU)
 			for i=0,n do
 				-- TODO: How much branch divergence does this cause?
 				if knots[i] < val then
-					outcolor_rgb = lerp(knots[i], knots[i+1], (val-knots[i])/(knots[i+1]-knots[i]))
+					outcolor_rgb = lerp(colors[i], colors[i+1], (val-knots[i])/(knots[i+1]-knots[i]))
 					break
 				end
 			end
@@ -42,9 +42,9 @@ local Colorize = S.memoize(function(real, GPU)
 	local RGBColor = Vec(real, 3, GPU)
 	local RGBAColor = Vec(real, 4, GPU)
 	local GradKnots = real[MAX_NUM_GRAD_POINTS]
-	local GradColors = RGBAColor[MAX_NUM_GRAD_POINTS]
+	local GradColors = RGBColor[MAX_NUM_GRAD_POINTS]
 
-	local BaseFunction = Function(real, 1, GPU)
+	local BaseFunction = Function(real, 4, GPU)
 	local Colorize = BaseFunction.makeDefaultSubtype(
 	"Colorize",
 	{
@@ -73,8 +73,8 @@ local Colorize = S.memoize(function(real, GPU)
 		var _knots : GradKnots
 		var _colors : GradColors
 		for i=0,n do
-			_knots[i] = knots(i)
-			_colors[i] = colors(i)
+			_knots[i] = self.knots(i)
+			_colors[i] = self.colors(i)
 		end
 		return [ColorizeNode(real, GPU)].alloc():init(self.registers, self.input:expand(coordNode),
 													  _knots, _colors, n, self.alpha)

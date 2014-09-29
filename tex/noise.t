@@ -32,9 +32,6 @@ end)
 local gradientNoise = S.memoize(function(real, GPU)
 	return terra(fx: real, fy: real, x: int, y: int, seed: int, grads: GradientTable(real, GPU))
 		-- Lookup into the gradient table using a random permutation of x,y
-		-- TODO: Try removing this and using the position to do direct lookup.
-		--    Might look bad, but it also could give us more control over
-		--    appearance when 'grads' is a random variable.
 		var index = (
 			X_NOISE_GEN * x +
 			Y_NOISE_GEN * y +
