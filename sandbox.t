@@ -155,6 +155,8 @@ local terra initGlobals()
 	var decolorized = [fns.Decolorize(double, GPU)].alloc():init(&registers, colorized)
 
 	program:init(&registers, decolorized)
+	-- program:treePrintPretty()
+	-- program:ssaPrintPretty()
 end
 initGlobals()
 

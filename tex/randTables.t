@@ -23,6 +23,7 @@ local const_gradients = S.memoize(function(real, GPU)
 		var grads = [GradientTable(real, false)](S.malloc(GRADIENT_TABLE_SIZE*sizeof(Vec2)))
 		for i=0,GRADIENT_TABLE_SIZE do
 			-- TODO: Something low-disrepancy would be better...
+			-- TODO: Use GPU constant memory?
 			var ang = [distrib.uniform(real)].sample(0.0, [2*math.pi])
 			grads[i] = Vec2.fromPolar(1.0, ang)
 		end

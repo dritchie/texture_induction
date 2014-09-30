@@ -52,6 +52,7 @@ local Colorize = S.memoize(function(real, GPU)
 		{knots = S.Vector(real)},
 		{colors = S.Vector(RGBAColor)},
 	})
+	Colorize.MAX_NUM_GRAD_POINTS = MAX_NUM_GRAD_POINTS
 
 	terra Colorize:expand(coordNode: &Colorize.CoordNode) : &Colorize.OutputNode
 		if self.knots:size() ~= self.colors:size() then

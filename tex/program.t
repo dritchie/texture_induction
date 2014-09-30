@@ -6,6 +6,7 @@ local CUDAImage = terralib.require("utils.cuda.cuimage")
 local Registers = terralib.require("tex.registers")
 local CoordSourceNode = terralib.require("tex.functions.coordSource")
 local Function = terralib.require("tex.functions.function")
+local HashMap = terralib.require("qs.lib.hashmap")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
 local cudaWrapKernel = terralib.require("utils.cuda.cukernelwrap")
@@ -49,21 +50,32 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 
 	local struct Program(S.Object)
 	{
-		-- The input and output nodes
+		rootFn: &Function(real, nOutChannels, GPU),
 		inputCoordNode: &CoordSourceNode(real, GPU),
 		outputNode: &Node(real, nOutChannels, GPU)
 	}
 
+	-- Assumes ownership of rootFn
 	terra Program:__init(registers: &Registers(real, GPU), rootFn: &Function(real, nOutChannels, GPU))
+		self.rootFn = rootFn
 		self.inputCoordNode = [CoordSourceNode(real, GPU)].alloc():init(registers)
 		self.outputNode = rootFn:expand(self.inputCoordNode)
 		self.outputNode:incrementOutputCount()
-		rootFn:delete()
 	end
 
 	terra Program:__destruct()
+		self.rootFn:delete()
 		-- This will in turn recursively delete the inputCoordNode
 		self.outputNode:delete()
+	end
+
+	terra Program:treePrintPretty()
+		self.rootFn:treePrintPretty(0)
+	end
+
+	terra Program:ssaPrintPretty()
+		var addrToId = [HashMap(&opaque, uint)].salloc():init()
+		self.rootFn:ssaPrintPretty(addrToId)
 	end
 
 	-- The scalar interpreter

@@ -2,6 +2,23 @@ local S = terralib.require("qs.lib.std")
 local inherit = terralib.require("utils.inheritance")
 local Registers = terralib.require("tex.registers")
 local Node = terralib.require("tex.functions.node").Node
+local HashMap = terralib.require("qs.lib.hashmap")
+
+
+-- Some utilities for pretty printing functions
+
+local terra printTabs(n: uint)
+	for i=0,n do
+		S.printf("    ")
+	end
+end
+
+local guid = global(uint, 0)
+local terra makeGUID()
+	var g = guid
+	guid = guid + 1
+	return g
+end
 
 
 -- A function is an abstraction around one or more primitive texture nodes
@@ -25,7 +42,7 @@ Function = S.memoize(function(real, nchannels, GPU)
 	end
 
 	terra FunctionT:__destruct() : {} end
-	-- inherit.virtual(FunctionT, "__destruct")
+	inherit.virtual(FunctionT, "__destruct")
 
 	local CoordNode = Node(real, 2, GPU)
 	local OutputNode = Node(real, nchannels, GPU)
@@ -34,6 +51,14 @@ Function = S.memoize(function(real, nchannels, GPU)
 	--    coordinate source node.
 	-- The resulting graph can then be interpreted/compiled.
 	inherit.purevirtual(FunctionT, "expand", {&CoordNode}->{&OutputNode})
+
+	-- Print a human-readable description of this function as an expression tree.
+	-- uint argument is tab level.
+	inherit.purevirtual(FunctionT, "treePrintPretty", {uint}->{})
+
+	-- Print a human-readable description of this function as an SSA program.
+	-- HashMap argument is a cache of variable ids for sub-graphs that have been printed already.
+	inherit.purevirtual(FunctionT, "ssaPrintPretty", {&HashMap(&opaque,uint)}->{})
 
 
 	-- Create a 'default' subclass, given data about inputs and parameters
@@ -92,6 +117,74 @@ Function = S.memoize(function(real, nchannels, GPU)
 			end
 		end
 		inherit.virtual(FunctionSubtype, "__destruct")
+
+		-- Print the function name, the values of its parameters, and then recursively print
+		--    its inputs
+		terra FunctionSubtype:treePrintPretty(tablevel: uint) : {}
+			S.printf("%s(\n", name)
+			escape
+				-- Print params
+				-- (We only handle int and float types, for now)
+				for _,ps in ipairs(paramsyms) do
+					if ps.type:isarithmetic() then
+						local fmtstr = ps.type:isfloat() and "%s: %g\n" or "%s: %d\n"
+						emit quote
+							printTabs(tablevel+1)
+							S.printf(fmtstr, [ps.displayname], self.[ps.displayname])
+						end
+					end
+				end
+				-- Recursively print inputs
+				for _,is in ipairs(inputsyms) do
+					emit quote
+						printTabs(tablevel+1)
+						S.printf("%s: ", [is.displayname])
+						self.[is.displayname]:treePrintPretty(tablevel + 1)
+					end
+				end
+			end
+			printTabs(tablevel)
+			S.printf(")\n")
+		end
+		inherit.virtual(FunctionSubtype, "treePrintPretty")
+
+		-- Recursively print inputs (thus causing any necessary prerequisite variable assignments
+		--    to be printed), then print the function itself.
+		terra FunctionSubtype:ssaPrintPretty(addrToId: &HashMap(&opaque, uint)) : {}
+			escape
+				-- Recursively print inputs
+				for _,is in ipairs(inputsyms) do
+					emit quote self.[is.displayname]:ssaPrintPretty(addrToId) end
+				end
+				-- Print assignment for this function call
+				emit quote
+					var myId = makeGUID()
+					addrToId:put([&opaque](self), myId)
+					S.printf("$%u = %s(\n", myId, name)
+				end
+				-- Print params (again, only float and int types for now)
+				for _,ps in ipairs(paramsyms) do
+					if ps.type:isarithmetic() then
+						local fmtstr = ps.type:isfloat() and "%s: %g\n" or "%s: %d\n"
+						emit quote
+							printTabs(1)
+							S.printf(fmtstr, [ps.displayname], self.[ps.displayname])
+						end
+					end
+				end
+				-- Print inputs by looking up into the addrToId cache
+				for _,is in ipairs(inputsyms) do
+					emit quote
+						var idPtr = addrToId:getPointer([&opaque](self.[is.displayname]))
+						S.assert(idPtr ~= nil)
+						printTabs(1)
+						S.printf("%s: $%u\n", [is.displayname], @idPtr)
+					end
+				end
+			end
+			S.printf(")\n")
+		end
+		inherit.virtual(FunctionSubtype, "ssaPrintPretty")
 
 		return FunctionSubtype
 	end
