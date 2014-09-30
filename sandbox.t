@@ -133,7 +133,7 @@ local OUT_NCHANNELS = 1
 local Mat = terralib.require("utils.linalg.mat")
 local Vec = terralib.require("utils.linalg.vec")
 local Mat3 = Mat(double, 3, 3, GPU)
-local RGBColor = Vec(double, 3, GPU)
+local RGBAColor = Vec(double, 4, GPU)
 
 local gradients = randTables.const_gradients(double, GPU)
 local registers = global(Registers(double, GPU))
@@ -148,15 +148,16 @@ local terra initGlobals()
 	var knots = [S.Vector(double)].salloc():init()
 	knots:insert(0.0)
 	knots:insert(1.0)
-	var colors = [S.Vector(RGBColor)].salloc():init()
-	colors:insert(RGBColor.create(115.0/255, 50.0/255, 18.0/255))
-	colors:insert(RGBColor.create(232.0/255, 115.0/255, 42.0/255))
-	var colorized = [fns.Colorize(double, GPU)].alloc():init(&registers, warped, @knots, @colors, 1.0)
+	var colors = [S.Vector(RGBAColor)].salloc():init()
+	colors:insert(RGBAColor.create(115.0/255, 50.0/255, 18.0/255, 1.0))
+	colors:insert(RGBAColor.create(232.0/255, 115.0/255, 42.0/255, 1.0))
+	var colorized = [fns.Colorize(double, GPU)].alloc():init(&registers, warped, @knots, @colors)
 	var decolorized = [fns.Decolorize(double, GPU)].alloc():init(&registers, colorized)
 
 	program:init(&registers, decolorized)
 end
 initGlobals()
+
 
 local t0 = terralib.currenttimeinseconds()
 local compiledfn = Program(double, OUT_NCHANNELS, GPU).methods.compile(program:getpointer())
