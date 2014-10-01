@@ -45,10 +45,13 @@ return function(nOutChannels, GPU)
 
 
 		-- The master generator function
+		local fnsGenerated = global(uint, 0)
 		local genFn = S.memoize(function(nchannels)
 			local probs = nchannels == 4 and colorProbs or grayscaleProbs
 			local gens = nchannels == 4 and colorGens or grayscaleGens
 			return qs.func(terra(registers: &Regs)
+				fnsGenerated = fnsGenerated + 1
+				S.printf("functions generated: %u\n", fnsGenerated)
 				var which = qs.categorical(&probs)
 				return gens(which):generate(registers)
 			end)
@@ -105,7 +108,7 @@ return function(nOutChannels, GPU)
 			terra WarpGenerator:generateImpl(registers: &Regs) : &Function(qs.real, nchannels, GPU)
 				var input = [genFn(nchannels)](registers)
 				var warpfield = [genFn(1)](registers)
-				var strength = qs.gammamv(0.05, 0.2, {struc=false})
+				var strength = 0.08 * qs.gammamv(1.0, 2.0, {struc=false})
 				return [fns.Warp(qs.real, nchannels, GPU)].alloc():init(registers, input, warpfield, strength)
 			end
 			inherit.virtual(WarpGenerator, "generateImpl")
@@ -159,8 +162,8 @@ return function(nOutChannels, GPU)
 				colors:insert(RGBAColor.create(qs.uniform(0.0, 1.0, {struc=false}),
 											   qs.uniform(0.0, 1.0, {struc=false}),
 											   qs.uniform(0.0, 1.0, {struc=false}),
-											   -- qs.uniform(0.0, 1.0, {struc=false})))
-											   1.0))
+											   qs.uniform(0.0, 1.0, {struc=false})))
+											   -- 1.0))
 			end
 			return [fns.Colorize(qs.real, GPU)].alloc():init(registers, input, @knots, @colors)
 		end
@@ -190,14 +193,14 @@ return function(nOutChannels, GPU)
 			grayscaleGens:insert(PerlinGenerator.alloc():init())
 			grayscaleGens:insert(DecolorizeGenerator.alloc():init())
 			grayscaleGens:insert([TransformGenerator(1)].alloc():init())
-			-- grayscaleGens:insert([WarpGenerator(1)].alloc():init())
-			-- grayscaleGens:insert([MaskGenerator(1)].alloc():init())
+			grayscaleGens:insert([WarpGenerator(1)].alloc():init())
+			grayscaleGens:insert([MaskGenerator(1)].alloc():init())
 			
 			colorGens:insert(ColorizeGenerator.alloc():init())
-			-- colorGens:insert(BlendGenerator.alloc():init())
+			colorGens:insert(BlendGenerator.alloc():init())
 			colorGens:insert([TransformGenerator(4)].alloc():init())
-			-- colorGens:insert([WarpGenerator(4)].alloc():init())
-			-- colorGens:insert([MaskGenerator(4)].alloc():init())
+			colorGens:insert([WarpGenerator(4)].alloc():init())
+			colorGens:insert([MaskGenerator(4)].alloc():init())
 
 			-- (Just use uniform probabilities for now)
 			for i=0,grayscaleGens:size() do grayscaleProbs:insert(1.0/grayscaleGens:size()) end
