@@ -7,6 +7,7 @@ local randTables = terralib.require("tex.randTables")
 local Vec = terralib.require("utils.linalg.vec")
 local Mat = terralib.require("utils.linalg.mat")
 local mathlib = terralib.require("utils.mathlib")
+local inherit = terralib.require("utils.inheritance")
 
 
 -- Incredibly simple grammar for generating texture programs.
@@ -19,18 +20,27 @@ return function(nOutChannels, GPU)
 	local mlib = mathlib(GPU)
 	return qs.module(function()
 
-		-- Typedefs
+		-- Types / typedefs
 		local Regs = Registers(qs.real, GPU)
-		local GrayscaleFn = Function(qs.real, 1, GPU)
-		local ColorFn = Function(qs.real, 4, GPU)
-		local GrayscaleFnGenerator = {&Regs}->{&GrayscaleFn}
-		local ColorFnGenerator = {&Regs}->{&ColorFn}
+
+		local Generator = S.memoize(function(nchannels)
+			local struct Generator(S.Object) {}
+			inherit.purevirtual(Generator, "generateImpl", {&Regs} ->{&Function(qs.real, nchannels, GPU)})
+			Generator.methods.generate = qs.method(terra(self: &Generator, registers: &Regs)
+				return self:generateImpl(registers)
+			end)
+			return Generator
+		end)
+
+		local GrayscaleGenerator = Generator(1)
+		local ColorGenerator = Generator(4)
+
 
 		-- Globals
 		local grayscaleProbs = global(S.Vector(qs.real))
-		local grayscaleGens = global(S.Vector(GrayscaleFnGenerator))
+		local grayscaleGens = global(S.Vector(&GrayscaleGenerator))
 		local colorProbs = global(S.Vector(qs.real))
-		local colorGens = global(S.Vector(ColorFnGenerator))
+		local colorGens = global(S.Vector(&ColorGenerator))
 
 
 		-- The master generator function
@@ -39,7 +49,7 @@ return function(nOutChannels, GPU)
 			local gens = nchannels == 4 and colorGens or grayscaleGens
 			return qs.func(terra(registers: &Regs)
 				var which = qs.categorical(&probs)
-				return gens(which)(registers)
+				return gens(which):generate(registers)
 			end)
 		end)
 
@@ -48,35 +58,26 @@ return function(nOutChannels, GPU)
 		-- Random generators for different function types  --
 		-----------------------------------------------------
 
-		local function makeGen(nchannels, terrafn)
-			-- Have to wrap the qs.func in another terra function so that
-			--    we can take function pointers
-			-- Also have to cast the return value to the Function base class,
-			--    because Terra has no automatic casts for function type polymorphism.
-			local qsfunc = qs.func(terrafn)
-			local FunctionType = Function(qs.real, nchannels, GPU)
-			return terra(registers: &Regs)
-				return [&FunctionType](qsfunc(registers))
-			end
+		local struct PerlinGenerator(S.Object) {}
+		inherit.dynamicExtend(Generator(1), PerlinGenerator)
+		local gradients = randTables.const_gradients(qs.real, GPU)
+		terra PerlinGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 1, GPU)
+			var frequency = qs.gammamv(1.0, 0.5, {struc=false})
+			var lacunarity = qs.gammamv(2.0, 1.0, {struc=false})
+			var persistence = qs.betamv(0.5, 0.05, {struc=false})
+			-- TODO: Should these be considered structural, or no?
+			var startOctave = qs.poisson(1, {struc=false})
+			var octaves = qs.poisson(5, {struc=false})
+			return [fns.Perlin(qs.real, GPU)].alloc():init(registers, gradients,
+				frequency, lacunarity, persistence, startOctave, octaves)
 		end
+		inherit.virtual(PerlinGenerator, "generateImpl")
 
-		local genPerlin = S.memoize(function()
-			local gradients = randTables.const_gradients(qs.real, GPU)
-			return makeGen(1, terra(registers: &Regs)
-				var frequency = qs.gammamv(1.0, 0.5, {struc=false})
-				var lacunarity = qs.gammamv(2.0, 1.0, {struc=false})
-				var persistence = qs.betamv(0.5, 0.05, {struc=false})
-				-- TODO: Should these be considered structural, or no?
-				var startOctave = qs.poisson(1, {struc=false})
-				var octaves = qs.poisson(5, {struc=false})
-				return [fns.Perlin(qs.real, GPU)].alloc():init(registers, gradients,
-					frequency, lacunarity, persistence, startOctave, octaves)
-			end)
-		end)
-
-		local genTransform = S.memoize(function(nchannels)
+		local TransformGenerator = S.memoize(function(nchannels)
 			local Mat3 = Mat(qs.real, 3, 3, GPU)
-			return makeGen(nchannels, terra(registers: &Regs)
+			local struct TransformGenerator(S.Object) {}
+			inherit.dynamicExtend(Generator(nchannels), TransformGenerator)
+			terra TransformGenerator:generateImpl(registers: &Regs) : &Function(qs.real, nchannels, GPU)
 				var input = [genFn(nchannels)](registers)
 				-- TODO: Should we allow negative scales (i.e. reflections) as well?
 				var scalex = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
@@ -84,103 +85,121 @@ return function(nOutChannels, GPU)
 				var ang = qs.gaussian(0.0, [math.pi/4.0], {struc=false})
 				var xform = Mat3.rotate(ang) * Mat3.scale(scalex, scaley)
 				return [fns.Transform(qs.real, nchannels, GPU)].alloc():init(registers, input, xform)
-			end)
+			end
+			inherit.virtual(TransformGenerator, "generateImpl")
+			return TransformGenerator
 		end)
 
-		local genDecolorize = S.memoize(function()
-			return makeGen(1, terra(registers: &Regs)
-				var input = [genFn(4)](registers)
-				return [fns.Decolorize(qs.real, GPU)].alloc():init(registers, input)
-			end)
-		end)
+		local struct DecolorizeGenerator(S.Object) {}
+		inherit.dynamicExtend(Generator(1), DecolorizeGenerator)
+		terra DecolorizeGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 1, GPU)
+			var input = [genFn(4)](registers)
+			return [fns.Decolorize(qs.real, GPU)].alloc():init(registers, input)
+		end
+		inherit.virtual(DecolorizeGenerator, "generateImpl")
 
-		local genWarp = S.memoize(function(nchannels)
-			return makeGen(nchannels, terra(registers: &Regs)
+		local WarpGenerator = S.memoize(function(nchannels)
+			local struct WarpGenerator(S.Object) {}
+			inherit.dynamicExtend(Generator(nchannels), WarpGenerator)
+			terra WarpGenerator:generateImpl(registers: &Regs) : &Function(qs.real, nchannels, GPU)
 				var input = [genFn(nchannels)](registers)
 				var warpfield = [genFn(1)](registers)
 				var strength = qs.gammamv(0.05, 0.2, {struc=false})
 				return [fns.Warp(qs.real, nchannels, GPU)].alloc():init(registers, input, warpfield, strength)
-			end)
+			end
+			inherit.virtual(WarpGenerator, "generateImpl")
+			return WarpGenerator
 		end)
 
-		local genMask = S.memoize(function(nchannels)
-			return makeGen(nchannels, terra(registers: &Regs)
+		local MaskGenerator = S.memoize(function(nchannels)
+			local struct MaskGenerator(S.Object) {}
+			inherit.dynamicExtend(Generator(nchannels), MaskGenerator)
+			terra MaskGenerator:generateImpl(registers: &Regs) : &Function(qs.real, nchannels, GPU)
 				var bot = [genFn(nchannels)](registers)
 				var top = [genFn(nchannels)](registers)
 				var mask = [genFn(1)](registers)
 				return [fns.Mask(qs.real, nchannels, GPU)].alloc():init(registers, bot, top, mask)
-			end)
-		end)
-
-		local genColorize = S.memoize(function()
-			local RGBAColor = Vec(qs.real, 4, GPU)
-			-- Uniform prior over num points
-			-- TODO: Better prior on num points
-			local MAX_NUM_GRAD_POINTS = fns.Colorize(qs.real, GPU).MAX_NUM_GRAD_POINTS
-			local nPointsProbs = global(qs.real[MAX_NUM_GRAD_POINTS])
-			for i=1,MAX_NUM_GRAD_POINTS do
-				nPointsProbs:get()[i-1] = 1.0/MAX_NUM_GRAD_POINTS
 			end
-			return makeGen(4, terra(registers: &Regs)
-				var input = [genFn(1)](registers)
-				var knots = [S.Vector(qs.real)].salloc():init()
-				var colors = [S.Vector(RGBAColor)].salloc():init()
-				var npoints = qs.categorical(nPointsProbs) + 1
-				var knotSpaceLeft = qs.real(1.0)
-				for i=0,npoints do
-					-- Generate knots by stick-breaking
-					-- (Take care to ensure that knots will remain correct under any perturbation)
-					var knot = qs.uniform(0.0, 1.0, {struc=false}) * knotSpaceLeft
-					knotSpaceLeft = knotSpaceLeft - knot
-					knots:insert(knot)
-					-- Generate colors uniformly at random
-					-- TODO: Make color prior encourage more smooth change / continuity
-					colors:insert(RGBAColor.create(qs.uniform(0.0, 1.0, {struc=false}),
-												   qs.uniform(0.0, 1.0, {struc=false}),
-												   qs.uniform(0.0, 1.0, {struc=false}),
-												   qs.uniform(0.0, 1.0, {struc=false})))
-				end
-				return [fns.Colorize(qs.real, GPU)].alloc():init(registers, input, @knots, @colors)
-			end)
+			inherit.virtual(MaskGenerator, "generateImpl")
+			return MaskGenerator
 		end)
 
-		local genBlend = S.memoize(function()
-			return makeGen(4, terra(registers: &Regs)
-				var bot = [genFn(4)](registers)
-				var top = [genFn(4)](registers)
-				var opacity = qs.uniform(0.0, 1.0, {struc=false})
-				return [fns.Blend(qs.real, GPU)].alloc():init(registers, bot, top, opacity)
-			end)
-		end)
+		local struct ColorizeGenerator(S.Object) {}
+		inherit.dynamicExtend(Generator(4), ColorizeGenerator)
+		local RGBAColor = Vec(qs.real, 4, GPU)
+		-- Uniform prior over num points
+		-- TODO: Better prior on num points
+		local MAX_NUM_GRAD_POINTS = fns.Colorize(qs.real, GPU).MAX_NUM_GRAD_POINTS
+		local nPointsProbs = global(qs.real[MAX_NUM_GRAD_POINTS])
+		for i=1,MAX_NUM_GRAD_POINTS do
+			nPointsProbs:get()[i-1] = 1.0/MAX_NUM_GRAD_POINTS
+		end
+		terra ColorizeGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 4, GPU)
+			var input = [genFn(1)](registers)
+			var knots = [S.Vector(qs.real)].salloc():init()
+			var colors = [S.Vector(RGBAColor)].salloc():init()
+			var npoints = qs.categorical(nPointsProbs) + 1
+			var knotSpaceLeft = qs.real(1.0)
+			for i=0,npoints do
+				-- Generate knots by stick-breaking
+				-- (Take care to ensure that knots will remain correct under any perturbation)
+				var knot = qs.uniform(0.0, 1.0, {struc=false}) * knotSpaceLeft
+				knotSpaceLeft = knotSpaceLeft - knot
+				knots:insert(knot)
+				-- Generate colors uniformly at random
+				-- TODO: Make color prior encourage more smooth change / continuity
+				colors:insert(RGBAColor.create(qs.uniform(0.0, 1.0, {struc=false}),
+											   qs.uniform(0.0, 1.0, {struc=false}),
+											   qs.uniform(0.0, 1.0, {struc=false}),
+											   qs.uniform(0.0, 1.0, {struc=false})))
+			end
+			return [fns.Colorize(qs.real, GPU)].alloc():init(registers, input, @knots, @colors)
+		end
+		inherit.virtual(ColorizeGenerator, "generateImpl")
+
+		local struct BlendGenerator(S.Object) {}
+		inherit.dynamicExtend(Generator(4), BlendGenerator)
+		terra BlendGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 4, GPU)
+			var bot = [genFn(4)](registers)
+			var top = [genFn(4)](registers)
+			var opacity = qs.uniform(0.0, 1.0, {struc=false})
+			return [fns.Blend(qs.real, GPU)].alloc():init(registers, bot, top, opacity)
+		end
+		inherit.virtual(BlendGenerator, "generateImpl")
 
 		-- Initialize the global prob/gen lists
+		local isinitialized = global(bool, 0)
 		local terra init()
+			isinitialized = true
 			grayscaleProbs:init()
 			grayscaleGens:init()
 			colorProbs:init()
 			colorGens:init()
 
 			-- Fill in the global probs/gens lists
+			
+			grayscaleGens:insert(PerlinGenerator.alloc():init())
+			grayscaleGens:insert(DecolorizeGenerator.alloc():init())
+			grayscaleGens:insert([TransformGenerator(1)].alloc():init())
+			grayscaleGens:insert([WarpGenerator(1)].alloc():init())
+			grayscaleGens:insert([MaskGenerator(1)].alloc():init())
+			
+			colorGens:insert(ColorizeGenerator.alloc():init())
+			colorGens:insert(BlendGenerator.alloc():init())
+			colorGens:insert([TransformGenerator(4)].alloc():init())
+			colorGens:insert([WarpGenerator(4)].alloc():init())
+			colorGens:insert([MaskGenerator(4)].alloc():init())
+
 			-- (Just use uniform probabilities for now)
-			-- PROBLEM: Getting pointers to these functions invokes synchronous compile, which causes
-			--    an infinite loop in the qs.program compiler...
-			grayscaleGens:insert([genPerlin()])
-			grayscaleGens:insert([genTransform(1)])
-			grayscaleGens:insert([genDecolorize()])
-			grayscaleGens:insert([genWarp(1)])
-			grayscaleGens:insert([genMask(1)])
 			for i=0,grayscaleGens:size() do grayscaleProbs:insert(1.0/grayscaleGens:size()) end
-			colorGens:insert([genTransform(4)])
-			colorGens:insert([genColorize()])
-			colorGens:insert([genWarp(4)])
-			colorGens:insert([genBlend()])
-			colorGens:insert([genMask(4)])
 			for i=0,colorGens:size() do colorProbs:insert(1.0/colorGens:size()) end
 		end
-		init()
 
 		-- The root-level generation function
 		return qs.func(terra(registers: &Regs)
+			if not isinitialized then
+				init()
+			end
 			return [genFn(nOutChannels)](registers)
 		end)
 

@@ -25,6 +25,8 @@ local GPU = false
 local qs = terralib.require("qs")
 local grammar = terralib.require("inference.grammar")
 
+-- qs.initrand()
+
 local colorTexGenModule = grammar(4, GPU)
 
 local registers = global(Registers(double, GPU))
