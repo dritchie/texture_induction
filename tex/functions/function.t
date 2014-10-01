@@ -3,16 +3,10 @@ local inherit = terralib.require("utils.inheritance")
 local Registers = terralib.require("tex.registers")
 local Node = terralib.require("tex.functions.node").Node
 local HashMap = terralib.require("qs.lib.hashmap")
+local util = terralib.require("utils.util")
 
 
 -- Some utilities for pretty printing functions
-
-local terra printTabs(n: uint)
-	for i=0,n do
-		S.printf("    ")
-	end
-end
-
 local guid = global(uint, 0)
 local terra makeGUID()
 	var g = guid
@@ -62,6 +56,12 @@ Function = S.memoize(function(real, nchannels, GPU)
 	-- HashMap argument is a cache of variable ids for sub-graphs that have been printed already.
 	inherit.purevirtual(FunctionT, "ssaPrintPretty", {&HashMap(&opaque,uint)}->{})
 
+	-- Print out any aggregate-type parameters of the function
+	-- (A utility for the above two printPretty methods)
+	terra FunctionT:printAggParams(tablevel: uint) : {}
+		-- Does nothing by default
+	end
+	inherit.virtual(FunctionT, "printAggParams")
 
 	-- Create a 'default' subclass, given data about inputs and parameters
 	-- inputs is a list of tables mapping names to number of channels
@@ -126,26 +126,28 @@ Function = S.memoize(function(real, nchannels, GPU)
 			S.printf("%s(\n", name)
 			escape
 				-- Print params
-				-- (We only handle int and float types, for now)
 				for _,ps in ipairs(paramsyms) do
+					-- (We only handle int and float types directly)
 					if ps.type:isarithmetic() then
 						local fmtstr = ps.type:isfloat() and "%s: %g\n" or "%s: %d\n"
 						emit quote
-							printTabs(tablevel+1)
+							util.printTabs(tablevel+1)
 							S.printf(fmtstr, [ps.displayname], self.[ps.displayname])
 						end
 					end
 				end
+				-- Print other params, if supported
+				emit quote self:printAggParams(tablevel+1) end
 				-- Recursively print inputs
 				for _,is in ipairs(inputsyms) do
 					emit quote
-						printTabs(tablevel+1)
+						util.printTabs(tablevel+1)
 						S.printf("%s: ", [is.displayname])
 						self.[is.displayname]:treePrintPretty(tablevel + 1)
 					end
 				end
 			end
-			printTabs(tablevel)
+			util.printTabs(tablevel)
 			S.printf(")\n")
 		end
 		inherit.virtual(FunctionSubtype, "treePrintPretty")
@@ -164,22 +166,24 @@ Function = S.memoize(function(real, nchannels, GPU)
 					addrToId:put([&opaque](self), myId)
 					S.printf("$%u = %s(\n", myId, name)
 				end
-				-- Print params (again, only float and int types for now)
+				-- Print params
 				for _,ps in ipairs(paramsyms) do
 					if ps.type:isarithmetic() then
 						local fmtstr = ps.type:isfloat() and "%s: %g\n" or "%s: %d\n"
 						emit quote
-							printTabs(1)
+							util.printTabs(1)
 							S.printf(fmtstr, [ps.displayname], self.[ps.displayname])
 						end
 					end
 				end
+				-- Print other params, if supported
+				emit quote self:printAggParams(1) end
 				-- Print inputs by looking up into the addrToId cache
 				for _,is in ipairs(inputsyms) do
 					emit quote
 						var idPtr = addrToId:getPointer([&opaque](self.[is.displayname]))
 						S.assert(idPtr ~= nil)
-						printTabs(1)
+						util.printTabs(1)
 						S.printf("%s: $%u\n", [is.displayname], @idPtr)
 					end
 				end

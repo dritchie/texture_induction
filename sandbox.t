@@ -15,7 +15,7 @@ local fns = terralib.require("tex.functions.functions")
 -- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
 
 local IMG_SIZE = 256
-local GPU = false
+local GPU = true
 
 
 ----------------------------------------------------------------------
@@ -25,7 +25,8 @@ local GPU = false
 local qs = terralib.require("qs")
 local grammar = terralib.require("inference.grammar")
 
--- qs.initrand()
+-- Do this or no?
+qs.initrand()
 
 local colorTexGenModule = grammar(4, GPU)
 
@@ -47,6 +48,7 @@ local terra go()
 	var samps = doinference()
 	var rootFn = samps(0).value
 	var program = [Program(qs.real, 4, GPU)].alloc():init(&registers, rootFn)
+	program:ssaPrintPretty()
 	var tex = registers.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
 	program:interpretVector(tex, -0.5, 0.5, -0.5, 0.5)
 	escape
@@ -72,8 +74,8 @@ go()
 
 -- local Mat = terralib.require("utils.linalg.mat")
 -- local Vec = terralib.require("utils.linalg.vec")
--- local Mat3 = Mat(double, 3, 3, GPU)
--- local RGBAColor = Vec(double, 4, GPU)
+-- local Mat3 = Mat(double, 3, 3)
+-- local RGBAColor = Vec(double, 4)
 
 -- local gradients = randTables.const_gradients(double, GPU)
 -- local registers = global(Registers(double, GPU))
