@@ -162,6 +162,8 @@ return function(nOutChannels, GPU)
 
 			-- Fill in the global probs/gens lists
 			-- (Just use uniform probabilities for now)
+			-- PROBLEM: Getting pointers to these functions invokes synchronous compile, which causes
+			--    an infinite loop in the qs.program compiler...
 			grayscaleGens:insert([genPerlin()])
 			grayscaleGens:insert([genTransform(1)])
 			grayscaleGens:insert([genDecolorize()])
@@ -176,7 +178,6 @@ return function(nOutChannels, GPU)
 			for i=0,colorGens:size() do colorProbs:insert(1.0/colorGens:size()) end
 		end
 		init()
-
 
 		-- The root-level generation function
 		return qs.func(terra(registers: &Regs)

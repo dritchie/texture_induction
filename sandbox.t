@@ -35,7 +35,6 @@ initglobals()
 
 local p = qs.program(function()
 	local colorTexGen = colorTexGenModule:open()
-
 	return terra()
 		return colorTexGen(&registers)
 	end
@@ -44,7 +43,7 @@ end)
 local doinference = qs.infer(p, qs.Samples, qs.ForwardSample(1))
 local terra go()
 	var samps = doinference()
-	var rootFn = samps(0)
+	var rootFn = samps(0).value
 	var program = [Program(qs.real, 4, GPU)].alloc():init(&registers, rootFn)
 	var tex = registers.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
 	program:interpretVector(tex, -0.5, 0.5, -0.5, 0.5)
