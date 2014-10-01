@@ -20,7 +20,7 @@ local Warp = S.memoize(function(real, nchannels, GPU)
 	local Warp = BaseFunction.makeDefaultSubtype(
 	"Warp",
 	{
-		{input = 1},
+		{input = nchannels},
 		{warpField = 1}
 	},
 	{

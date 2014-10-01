@@ -48,14 +48,26 @@ return function(nOutChannels, GPU)
 		-- Random generators for different function types  --
 		-----------------------------------------------------
 
+		local function makeGen(nchannels, terrafn)
+			-- Have to wrap the qs.func in another terra function so that
+			--    we can take function pointers
+			-- Also have to cast the return value to the Function base class,
+			--    because Terra has no automatic casts for function type polymorphism.
+			local qsfunc = qs.func(terrafn)
+			local FunctionType = Function(qs.real, nchannels, GPU)
+			return terra(registers: &Regs)
+				return [&FunctionType](qsfunc(registers))
+			end
+		end
+
 		local genPerlin = S.memoize(function()
 			local gradients = randTables.const_gradients(qs.real, GPU)
-			return qs.func(terra(registers: &Regs)
+			return makeGen(1, terra(registers: &Regs)
 				var frequency = qs.gammamv(1.0, 0.5, {struc=false})
 				var lacunarity = qs.gammamv(2.0, 1.0, {struc=false})
 				var persistence = qs.betamv(0.5, 0.05, {struc=false})
 				-- TODO: Should these be considered structural, or no?
-				var startOctave = qs.poisson(1, struc=false)
+				var startOctave = qs.poisson(1, {struc=false})
 				var octaves = qs.poisson(5, {struc=false})
 				return [fns.Perlin(qs.real, GPU)].alloc():init(registers, gradients,
 					frequency, lacunarity, persistence, startOctave, octaves)
@@ -64,26 +76,26 @@ return function(nOutChannels, GPU)
 
 		local genTransform = S.memoize(function(nchannels)
 			local Mat3 = Mat(qs.real, 3, 3, GPU)
-			return qs.func(terra(registers: &Regs)
+			return makeGen(nchannels, terra(registers: &Regs)
 				var input = [genFn(nchannels)](registers)
 				-- TODO: Should we allow negative scales (i.e. reflections) as well?
 				var scalex = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
 				var scaley = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
-				var ang = qs.gaussian(0.0, [math.pi/4.0], struc=false)
+				var ang = qs.gaussian(0.0, [math.pi/4.0], {struc=false})
 				var xform = Mat3.rotate(ang) * Mat3.scale(scalex, scaley)
 				return [fns.Transform(qs.real, nchannels, GPU)].alloc():init(registers, input, xform)
 			end)
 		end)
 
 		local genDecolorize = S.memoize(function()
-			return qs.func(terra(registers: &Regs)
+			return makeGen(1, terra(registers: &Regs)
 				var input = [genFn(4)](registers)
 				return [fns.Decolorize(qs.real, GPU)].alloc():init(registers, input)
 			end)
 		end)
 
 		local genWarp = S.memoize(function(nchannels)
-			return qs.func(terra(registers: &Regs)
+			return makeGen(nchannels, terra(registers: &Regs)
 				var input = [genFn(nchannels)](registers)
 				var warpfield = [genFn(1)](registers)
 				var strength = qs.gammamv(0.05, 0.2, {struc=false})
@@ -92,7 +104,7 @@ return function(nOutChannels, GPU)
 		end)
 
 		local genMask = S.memoize(function(nchannels)
-			return qs.func(terra(registers: &Regs)
+			return makeGen(nchannels, terra(registers: &Regs)
 				var bot = [genFn(nchannels)](registers)
 				var top = [genFn(nchannels)](registers)
 				var mask = [genFn(1)](registers)
@@ -109,7 +121,7 @@ return function(nOutChannels, GPU)
 			for i=1,MAX_NUM_GRAD_POINTS do
 				nPointsProbs:get()[i-1] = 1.0/MAX_NUM_GRAD_POINTS
 			end
-			return qs.func(terra(registers: &Regs)
+			return makeGen(4, terra(registers: &Regs)
 				var input = [genFn(1)](registers)
 				var knots = [S.Vector(qs.real)].salloc():init()
 				var colors = [S.Vector(RGBAColor)].salloc():init()
@@ -128,18 +140,18 @@ return function(nOutChannels, GPU)
 												   qs.uniform(0.0, 1.0, {struc=false}),
 												   qs.uniform(0.0, 1.0, {struc=false})))
 				end
+				return [fns.Colorize(qs.real, GPU)].alloc():init(registers, input, @knots, @colors)
 			end)
 		end)
 
 		local genBlend = S.memoize(function()
-			return qs.func(terra(registers: &Regs)
+			return makeGen(4, terra(registers: &Regs)
 				var bot = [genFn(4)](registers)
 				var top = [genFn(4)](registers)
 				var opacity = qs.uniform(0.0, 1.0, {struc=false})
 				return [fns.Blend(qs.real, GPU)].alloc():init(registers, bot, top, opacity)
 			end)
 		end)
-
 
 		-- Initialize the global prob/gen lists
 		local terra init()

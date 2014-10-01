@@ -22,6 +22,8 @@ local idToType = {}
 -- Abstract base class for all texture nodes
 local Node
 Node = S.memoize(function(real, nchannels, GPU)
+	assert(type(nchannels) == "number", "Node: nchannels must be a number")
+	assert(type(GPU) == "boolean", "Node: GPU must be a boolean")
 
 	-- IMPORTANT: All output channels of all nodes should always be in the range (0, 1)
 
@@ -200,21 +202,15 @@ Node = S.memoize(function(real, nchannels, GPU)
 	end
 	NodeT.getParamEntries = getParamEntries
 
-	-- If the number of channels is 1, then 'eval' returns real and we need
+	-- If the number of channels is 1 and 'eval' returns real, then we need
 	--    to convert that to a Vec(real, 1) to be consistent with downstream code.
-	local function ensureVecEval(expr, nodeClass)
-		if nchannels == 1 then
-			local VecT = Vec(real, 1, GPU)
-			return quote
-				var v : VecT
-				v:init(expr)
-			in
-				v
-			end
+	local ensureVecEval = macro(function(exp)
+		if exp:gettype() == real then
+			return `[Vec(real, 1, GPU)].create(exp)
 		else
-			return expr
+			return exp
 		end
-	end
+	end)
 	NodeT.ensureVecEval = ensureVecEval
 
 	-- Add the 'evalSelf' method (the version of eval that uses parameters stored on 'self'
@@ -243,7 +239,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 		-- evalScalar all of the inputs, then pass the results to eval.
 		local inputs = getInputEntries(nodeClass)
 		local inputResults = inputs:map(function(e) return `self.[e.field]:evalScalar() end)
-		return ensureVecEval(`self:evalSelf([inputResults]), nodeClass)
+		return `ensureVecEval(self:evalSelf([inputResults]))
 	end)
 
 	-- Generate code for the virtual 'evalVector' method
@@ -269,7 +265,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 				var outimg = self.imagePool:fetch(xres, yres)
 				for y=0,yres do
 					for x=0,xres do
-						outimg(x,y) = [ensureVecEval(`self:evalSelf([inputTempsXY(x, y)]), nodeClass)]
+						outimg(x,y) = ensureVecEval(self:evalSelf([inputTempsXY(x, y)]))
 					end
 				end
 				[releaseInputTemps]
@@ -300,7 +296,7 @@ Node = S.memoize(function(real, nchannels, GPU)
 				var xi = custd.threadIdx.x()
 				var yi = custd.blockIdx.x()
 				var outptr = [&OutputScalarType]( [&uint8](output) + yi*outpitch ) + xi
-				@outptr = [ensureVecEval(`nodeClass.eval([inputTempsXY(xi, yi)], [paramSyms]), nodeClass)]
+				@outptr = ensureVecEval(nodeClass.eval([inputTempsXY(xi, yi)], [paramSyms]))
 			end
 			local wkernel = cudaWrapKernel(kernel)
 			local inputResults = inputs:map(function(e) return `self.[e.field]:evalVector() end)
@@ -386,7 +382,12 @@ local function makeNodeFromFunc(nodeName, fnTemplate)
 		--    * real, GPU
 		-- depending on whether the node supports different channel numbers
 		local real = args[1]
-		local GPU = (#args == 3 and args[3] or args[2])
+		local GPU
+		if #args == 3 then
+			GPU = args[3]
+		else
+			GPU = args[2]
+		end
 		local nchannels
 		if #args == 3 then
 			nchannels = args[2]
@@ -396,6 +397,9 @@ local function makeNodeFromFunc(nodeName, fnTemplate)
 			local isColor = (evalFnType.returntype == Vec(real, 4, GPU))
 			nchannels = (isGrayscale and 1 or (isCoordinate and 2 or (isColor and 4)))
 		end
+
+		assert(type(nchannels) == "number", string.format("%s: nchannels must be a number", nodeName))
+		assert(type(GPU) == "boolean", string.format("%s: GPU must be a boolean", nodeName))
 
 		-- Set up struct
 		local struct NodeClass(S.Object) {}
@@ -507,7 +511,7 @@ genCodeForClass = function(nodeClass, node, bodyStmts, paramSyms, paramExtractEx
 	-- Generate code for this node
 	local retsym = symbol(ParentNodeType.OutputScalarType)
 	bodyStmts:insert(quote
-		var [retsym] = [ParentNodeType.ensureVecEval(`nodeClass.eval([myInputSyms], [myParamSyms]), nodeClass)]
+		var [retsym] = [ParentNodeType.ensureVecEval](nodeClass.eval([myInputSyms], [myParamSyms]))
 	end)
 	return retsym
 end

@@ -27,6 +27,8 @@ end
 --    especially for coordinate transformations.
 local Function
 Function = S.memoize(function(real, nchannels, GPU)
+	assert(type(nchannels) == "number", "Function: nchannels must be a number")
+	assert(type(GPU) == "boolean", "Function: GPU must be a boolean")
 
 	local struct FunctionT(S.Object)
 	{

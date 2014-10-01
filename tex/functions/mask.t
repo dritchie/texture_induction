@@ -37,7 +37,7 @@ local Mask = S.memoize(function(real, nchannels, GPU)
 	})
 
 	terra Mask:expand(coordNode: &Mask.CoordNode) : &Mask.OutputNode
-		return [MaskNode(real, GPU)].alloc():init(self.registers,
+		return [MaskNode(real, nchannels, GPU)].alloc():init(self.registers,
 			self.bottom:expand(coordNode), self.top:expand(coordNode), self.mask:expand(coordNode))
 	end
 	inherit.virtual(Mask, "expand")
