@@ -45,13 +45,13 @@ return function(nOutChannels, GPU)
 
 
 		-- The master generator function
-		local fnsGenerated = global(uint, 0)
+		-- local fnsGenerated = global(uint, 0)
 		local genFn = S.memoize(function(nchannels)
 			local probs = nchannels == 4 and colorProbs or grayscaleProbs
 			local gens = nchannels == 4 and colorGens or grayscaleGens
 			return qs.func(terra(registers: &Regs)
-				fnsGenerated = fnsGenerated + 1
-				S.printf("functions generated: %u\n", fnsGenerated)
+				-- fnsGenerated = fnsGenerated + 1
+				-- S.printf("functions generated: %u\n", fnsGenerated)
 				var which = qs.categorical(&probs)
 				return gens(which):generate(registers)
 			end)
@@ -66,12 +66,12 @@ return function(nOutChannels, GPU)
 		inherit.dynamicExtend(Generator(1), PerlinGenerator)
 		local gradients = randTables.const_gradients(qs.real, GPU)
 		terra PerlinGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 1, GPU)
-			var frequency = qs.gammamv(1.0, 0.5, {struc=false})
-			var lacunarity = 1.0 + qs.gammamv(2.0, 2.0, {struc=false})
+			var frequency = qs.gammamv(1.0, 2.0, {struc=false})
+			var lacunarity = 1.0 + qs.gammamv(2.0, 3.0, {struc=false})
 			var persistence = qs.uniform(0.0, 1.0, {struc=false})
 			-- TODO: Should these be considered structural, or no?
 			var startOctave = qs.poisson(1, {struc=false})
-			var octaves = 1 + qs.poisson(5, {struc=false})
+			var octaves = 1 + qs.poisson(6, {struc=false})
 			return [fns.Perlin(qs.real, GPU)].alloc():init(registers, gradients,
 				frequency, lacunarity, persistence, startOctave, octaves)
 		end
@@ -108,7 +108,7 @@ return function(nOutChannels, GPU)
 			terra WarpGenerator:generateImpl(registers: &Regs) : &Function(qs.real, nchannels, GPU)
 				var input = [genFn(nchannels)](registers)
 				var warpfield = [genFn(1)](registers)
-				var strength = 0.08 * qs.gammamv(1.0, 2.0, {struc=false})
+				var strength = 0.08 * qs.gammamv(1.0, 4.0, {struc=false})
 				return [fns.Warp(qs.real, nchannels, GPU)].alloc():init(registers, input, warpfield, strength)
 			end
 			inherit.virtual(WarpGenerator, "generateImpl")
@@ -133,6 +133,7 @@ return function(nOutChannels, GPU)
 		local RGBAColor = Vec(qs.real, 4)
 		-- Uniform prior over num points
 		-- TODO: Better prior on num points
+		-- TODO: Instead of num points, have a separate flip controlling the use/unuse of each point?
 		local MAX_NUM_GRAD_POINTS = fns.Colorize(qs.real, GPU).MAX_NUM_GRAD_POINTS - 2
 		local nPointsProbs = global(qs.real[MAX_NUM_GRAD_POINTS])
 		for i=1,MAX_NUM_GRAD_POINTS do
@@ -142,7 +143,8 @@ return function(nOutChannels, GPU)
 			var input = [genFn(1)](registers)
 			var knots = [S.Vector(qs.real)].salloc():init()
 			var colors = [S.Vector(RGBAColor)].salloc():init()
-			var npoints = qs.categorical(nPointsProbs) + 1
+			-- var npoints = qs.categorical(nPointsProbs) + 1
+			var npoints = MAX_NUM_GRAD_POINTS
 			var currKnot = qs.real(0.0)
 			for i=0,npoints+2 do
 				if i == 0 then
@@ -188,10 +190,10 @@ return function(nOutChannels, GPU)
 			colorProbs:init()
 			colorGens:init()
 
-			-- Fill in the global probs/gens lists
+			-- Fill in the global probs/gen lists
 			
 			grayscaleGens:insert(PerlinGenerator.alloc():init())
-			grayscaleGens:insert(DecolorizeGenerator.alloc():init())
+			-- grayscaleGens:insert(DecolorizeGenerator.alloc():init())
 			grayscaleGens:insert([TransformGenerator(1)].alloc():init())
 			grayscaleGens:insert([WarpGenerator(1)].alloc():init())
 			grayscaleGens:insert([MaskGenerator(1)].alloc():init())
@@ -203,8 +205,10 @@ return function(nOutChannels, GPU)
 			colorGens:insert([MaskGenerator(4)].alloc():init())
 
 			-- (Just use uniform probabilities for now)
-			for i=0,grayscaleGens:size() do grayscaleProbs:insert(1.0/grayscaleGens:size()) end
-			for i=0,colorGens:size() do colorProbs:insert(1.0/colorGens:size()) end
+			for i=0,grayscaleGens:size() do grayscaleProbs:insert(1.0) end
+			grayscaleProbs(0) = 5.0
+			for i=0,colorGens:size() do colorProbs:insert(1.0) end
+			colorProbs(0) = 5.0
 		end
 
 		-- The root-level generation function
