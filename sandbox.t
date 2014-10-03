@@ -108,7 +108,7 @@ end)
 
 -- Running inference / processing results
 local doinference = qs.infer(p, qs.MAP,
-	qs.MCMC(qs.TraceMHKernel(), {numsamps=5000, verbose=true})
+	qs.MCMC(qs.TraceMHKernel(), {numsamps=2000, verbose=true})
 )
 local terra go()
 	var rootFn = doinference()

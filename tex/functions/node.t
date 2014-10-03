@@ -8,7 +8,7 @@ local CUDAImage = terralib.require("utils.cuda.cuimage")
 local curt = terralib.require("utils.cuda.curt")
 local custd = terralib.require("utils.cuda.custd")
 local cudaWrapKernel = terralib.require("utils.cuda.cukernelwrap")
-
+local HashMap = terralib.require("qs.lib.hashmap")
 
 
 
@@ -72,10 +72,17 @@ Node = S.memoize(function(real, nchannels, GPU)
 		self.nOutputsRemaining = 0
 	end
 
-	-- Destructor does nothing, but it's virtual so that if subclass
-	--    destructors need to do something, they can.
-	terra NodeT:__destruct() : {} end
-	inherit.virtual(NodeT, "__destruct")
+	-- Destruction proceeds via a special 'destructRecursive' method, not the typical
+	--    '__destruct' method. Check out how concrete subclasses implement 'destructRecursive'
+	--    (see 'makeNodeFromFunc') to see why this is needed.
+	terra NodeT:__destruct()
+		var visited = [HashMap(&opaque, bool)].salloc():init()
+		self:destructRecursive(visited)
+	end
+	terra NodeT:destructRecursive(visited: &HashMap(&opaque, bool)) : {}
+		-- Base class does nothing.
+	end
+	inherit.virtual(NodeT, "destructRecursive")
 
 	-- Scalar interpretation is only possible under CPU execution
 	if not GPU then
@@ -452,21 +459,27 @@ local function makeNodeFromFunc(nodeName, fnTemplate)
 			self.typeID = [NodeClass.NodeTypeID]   -- *must* be set for compiler code gen to work
 		end
 
-		-- Destructor goes through all the inputs and deletes them if they are not nil
-		terra NodeClass:__destruct() : {}
+		-- Destructor goes through all the inputs and deletes them (if they haven't been visited yet).
+		terra NodeClass:destructRecursive(visited: &HashMap(&opaque, bool)) : {}
+			var bptr : &bool
+			var found : bool
 			escape
 				local inputs = ParentNodeType.getInputEntries(NodeClass)
 				for _,e in ipairs(inputs) do
 					emit quote
-						if self.[e.field] ~= nil then
-							self.[e.field]:delete()
+						bptr, found = visited:getOrCreatePointer([&opaque](self.[e.field]))
+						if not found then
+							@bptr = true
+							-- Recursively destroy, then free pointer.
+							self.[e.field]:destructRecursive(visited)
+							S.free(self.[e.field])
 							self.[e.field] = nil
 						end
 					end
 				end
 			end
 		end
-		inherit.virtual(NodeClass, "__destruct")
+		inherit.virtual(NodeClass, "destructRecursive")
 
 		return NodeClass
 

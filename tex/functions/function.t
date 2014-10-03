@@ -37,8 +37,14 @@ Function = S.memoize(function(real, nchannels, GPU)
 		self.registers = registers
 	end
 
-	terra FunctionT:__destruct() : {} end
-	inherit.virtual(FunctionT, "__destruct")
+	terra FunctionT:__destruct()
+		var visited = [HashMap(&opaque, bool)].salloc():init()
+		self:destructRecursive(visited)
+	end
+	terra FunctionT:destructRecursive(visited: &HashMap(&opaque, bool)) : {}
+		-- Base class does nothing
+	end
+	inherit.virtual(FunctionT, "destructRecursive")
 
 	local CoordNode = Node(real, 2, GPU)
 	local OutputNode = Node(real, nchannels, GPU)
@@ -106,19 +112,26 @@ Function = S.memoize(function(real, nchannels, GPU)
 			end
 		end
 
-		terra FunctionSubtype:__destruct() : {}
+		terra FunctionSubtype:destructRecursive(visited: &HashMap(&opaque, bool)) : {}
+			var bptr : &bool
+			var found : bool
 			escape
 				for _,s in ipairs(inputsyms) do
 					emit quote
-						if self.[s.displayname] ~= nil then
-							self.[s.displayname]:delete()
+						bptr, found = visited:getOrCreatePointer([&opaque](self.[s.displayname]))
+						if not found then
+							@bptr = true
+							-- Recursively destroy, then free pointer
+							self.[s.displayname]:destructRecursive(visited)
+							S.free(self.[s.displayname])
+							self.[s.displayname] = nil
 						end
 						self.[s.displayname] = nil
 					end
 				end
 			end
 		end
-		inherit.virtual(FunctionSubtype, "__destruct")
+		inherit.virtual(FunctionSubtype, "destructRecursive")
 
 		-- Print the function name, the values of its parameters, and then recursively print
 		--    its inputs
