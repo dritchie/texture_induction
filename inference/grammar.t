@@ -86,6 +86,7 @@ return function(nOutChannels, GPU)
 				-- TODO: Should we allow negative scales (i.e. reflections) as well?
 				var scalex = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
 				var scaley = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
+				-- TODO: Add translation? (so we can 'position' texture elements w/out changing e.g. gradient tables)
 				var ang = qs.gaussian(0.0, [math.pi/4.0], {struc=false})
 				var xform = Mat3.rotate(ang) * Mat3.scale(scalex, scaley)
 				return [fns.Transform(qs.real, nchannels, GPU)].alloc():init(registers, input, xform)
@@ -131,19 +132,11 @@ return function(nOutChannels, GPU)
 		local struct ColorizeGenerator(S.Object) {}
 		inherit.dynamicExtend(Generator(4), ColorizeGenerator)
 		local RGBAColor = Vec(qs.real, 4)
-		-- Uniform prior over num points
-		-- TODO: Better prior on num points
-		-- TODO: Instead of num points, have a separate flip controlling the use/unuse of each point?
 		local MAX_NUM_GRAD_POINTS = fns.Colorize(qs.real, GPU).MAX_NUM_GRAD_POINTS - 2
-		local nPointsProbs = global(qs.real[MAX_NUM_GRAD_POINTS])
-		for i=1,MAX_NUM_GRAD_POINTS do
-			nPointsProbs:get()[i-1] = 1.0/MAX_NUM_GRAD_POINTS
-		end
 		terra ColorizeGenerator:generateImpl(registers: &Regs) : &Function(qs.real, 4, GPU)
 			var input = [genFn(1)](registers)
 			var knots = [S.Vector(qs.real)].salloc():init()
 			var colors = [S.Vector(RGBAColor)].salloc():init()
-			-- var npoints = qs.categorical(nPointsProbs) + 1
 			var npoints = MAX_NUM_GRAD_POINTS
 			var currKnot = qs.real(0.0)
 			for i=0,npoints+2 do
@@ -155,7 +148,7 @@ return function(nOutChannels, GPU)
 					-- Generate knots by stick-breaking
 					-- (Take care to ensure that knots will remain correct under any perturbation)
 					var knotSpaceLeft = 1.0 - currKnot
-					var knot = currKnot + (qs.uniform(0.0, 0.9, {struc=false}) * knotSpaceLeft)
+					var knot = currKnot + (qs.uniform(0.0, 0.99, {struc=false}) * knotSpaceLeft)
 					currKnot = knot
 					knots:insert(knot)
 				end
@@ -204,7 +197,8 @@ return function(nOutChannels, GPU)
 			colorGens:insert([WarpGenerator(4)].alloc():init())
 			colorGens:insert([MaskGenerator(4)].alloc():init())
 
-			-- (Just use uniform probabilities for now)
+			-- Uniform probabilities, but make "terminals" much more likely so we don't
+			--    get 'infinite' recursion.
 			for i=0,grayscaleGens:size() do grayscaleProbs:insert(1.0) end
 			grayscaleProbs(0) = 5.0
 			for i=0,colorGens:size() do colorProbs:insert(1.0) end

@@ -63,6 +63,8 @@ local terra go()
 		end
 	end
 	registers.vec4Registers:release(tex)
+	-- Remove alpha channel from resulting image so we can see it better
+	S.system("convert randomTex.png -alpha off randomTex.png")
 end
 go()
 
