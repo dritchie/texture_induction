@@ -55,7 +55,6 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 		outputNode: &Node(real, nOutChannels, GPU)
 	}
 
-	-- Assumes ownership of rootFn
 	terra Program:__init(registers: &Registers(real, GPU), rootFn: &Function(real, nOutChannels, GPU))
 		self.rootFn = rootFn
 		self.inputCoordNode = [CoordSourceNode(real, GPU)].alloc():init(registers)
@@ -64,7 +63,6 @@ local Program = S.memoize(function(real, nOutChannels, GPU)
 	end
 
 	terra Program:__destruct()
-		self.rootFn:delete()
 		-- This will in turn recursively delete the inputCoordNode
 		self.outputNode:delete()
 	end

@@ -6,13 +6,11 @@ local Program = terralib.require("tex.program")
 local Registers = terralib.require("tex.registers")
 local randTables = terralib.require("tex.randTables")
 local fns = terralib.require("tex.functions.functions")
+local Vec = terralib.require("utils.linalg.vec")
 
 
--- -- For reference:
--- local DEFAULT_PERLIN_FREQUENCY = `1.0
--- local DEFAULT_PERLIN_LACUNARITY = `2.0
--- local DEFAULT_PERLIN_PERSISTENCE = `0.5
--- local DEFAULT_PERLIN_OCTAVE_COUNT = `6
+----------------------------------------------------------------------
+
 
 local IMG_SIZE = 256
 local GPU = true
@@ -24,29 +22,96 @@ local GPU = true
 
 local qs = terralib.require("qs")
 local grammar = terralib.require("inference.grammar")
+local colorTexGenModule = grammar(4, GPU)
 
 -- Do this or no?
 qs.initrand()
 
-local colorTexGenModule = grammar(4, GPU)
-
+-- Set up registers
 local registers = global(Registers(double, GPU))
+local hostRegisters = global(Registers(double, false))
 local terra initglobals()
 	registers:init()
+	hostRegisters:init()
 end
 initglobals()
 
+
+-- The probabilistic program
 local p = qs.program(function()
+
+	-- Constants
+	local FACTOR_WEIGHT = 1000.0
+
+	-- Modules
 	local colorTexGen = colorTexGenModule:open()
-	return terra()
-		return colorTexGen(&registers)
+	local hostmath = mathlib(false)
+
+	-- Define image types
+	local HostImage = image.Image(qs.real, 4)
+	local Image = HostImage
+	if GPU then
+		Image = CUDAImage(qs.real, 4)
 	end
+
+	-- The target image
+	local targetImg = global(HostImage)
+	local terra initglobals()
+		targetImg:init(image.Format.PNG, "exampleTextures/256/016-r.png")
+	end
+	initglobals()
+
+	-- Spatial domain MSE
+	-- TODO: Do this computation through CUDA
+	local terra mse(im1: &HostImage, im2: &HostImage)
+		var sqerr = qs.real(0.0)
+		for y=0,im1.height do
+			for x=0,im2.height do
+				-- Disregard alpha in difference computation
+				var diffR = im1(x,y)(0) - im2(x,y)(0)
+				var diffG = im1(x,y)(1) - im2(x,y)(1)
+				var diffB = im1(x,y)(2) - im2(x,y)(2)
+				sqerr = sqerr + diffR*diffR + diffG*diffG + diffB*diffB
+			end
+		end
+		return hostmath.sqrt(sqerr / (im1.width*im1.height))
+	end
+
+	-- Likelihood term is just spatial domain MSE, for now.
+	-- If we're rendering on the GPU, then (for now) we have to copy
+	--    the image back to host memory to do the comparison.
+	local likelihood = macro(function(tex)
+		if not GPU then
+			return quote qs.factor(-mse(tex, &targetImg) * FACTOR_WEIGHT) end
+		else
+			return quote
+				var hosttex = hostRegisters.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
+				tex:toHostImg(hosttex)
+				qs.factor(-mse(hosttex, &targetImg) * FACTOR_WEIGHT)
+				hostRegisters.vec4Registers:release(hosttex)
+			end
+		end
+	end)
+
+	return terra()
+		var rootFn = colorTexGen(&registers)
+		var program = [Program(qs.real, 4, GPU)].salloc():init(&registers, rootFn)
+		var tex = registers.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
+		program:interpretVector(tex, -0.5, 0.5, -0.5, 0.5)
+		likelihood(tex)
+		registers.vec4Registers:release(tex)
+		return rootFn
+	end
+
 end)
 
-local doinference = qs.infer(p, qs.Samples, qs.ForwardSample(1))
+
+-- Running inference / processing results
+local doinference = qs.infer(p, qs.MAP,
+	qs.MCMC(qs.TraceMHKernel(), {numsamps=5000, verbose=true})
+)
 local terra go()
-	var samps = doinference()
-	var rootFn = samps(0).value
+	var rootFn = doinference()
 	var program = [Program(qs.real, 4, GPU)].alloc():init(&registers, rootFn)
 	program:ssaPrintPretty()
 	var tex = registers.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
@@ -70,12 +135,11 @@ go()
 
 ----------------------------------------------------------------------
 
--- -- Manually generating a example textures
+-- -- Manually generating example textures
 
 -- local OUT_NCHANNELS = 1
 
 -- local Mat = terralib.require("utils.linalg.mat")
--- local Vec = terralib.require("utils.linalg.vec")
 -- local Mat3 = Mat(double, 3, 3)
 -- local RGBAColor = Vec(double, 4)
 
@@ -257,7 +321,6 @@ go()
 
 -- -- How long does it take to compile a (reasonably-sized) kernel?
 
--- -- local Vec = terralib.require("utils.linalg.vec")
 -- -- local custd = terralib.require("utils.cuda.custd")
 -- -- local lerp = macro(function(lo, hi, t)
 -- -- 	return `(1.0-t)*lo + t*hi
