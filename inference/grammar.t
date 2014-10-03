@@ -86,9 +86,10 @@ return function(nOutChannels, GPU)
 				-- TODO: Should we allow negative scales (i.e. reflections) as well?
 				var scalex = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
 				var scaley = mlib.exp(qs.gaussian(0.0, 1.0, {struc=false}))
-				-- TODO: Add translation? (so we can 'position' texture elements w/out changing e.g. gradient tables)
 				var ang = qs.gaussian(0.0, [math.pi/4.0], {struc=false})
-				var xform = Mat3.rotate(ang) * Mat3.scale(scalex, scaley)
+				var tx = qs.gaussian(0.0, 10.0, {struc=false})
+				var ty = qs.gaussian(0.0, 10.0, {struc=false})
+				var xform = Mat3.translate(tx, ty) * Mat3.rotate(ang) * Mat3.scale(scalex, scaley)
 				return [fns.Transform(qs.real, nchannels, GPU)].alloc():init(registers, input, xform)
 			end
 			inherit.virtual(TransformGenerator, "generateImpl")
