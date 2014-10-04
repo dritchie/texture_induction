@@ -7,6 +7,7 @@ local Registers = terralib.require("tex.registers")
 local randTables = terralib.require("tex.randTables")
 local fns = terralib.require("tex.functions.functions")
 local Vec = terralib.require("utils.linalg.vec")
+local autoptr = terralib.require("utils.autopointer")
 
 
 ----------------------------------------------------------------------
@@ -100,7 +101,7 @@ local p = qs.program(function()
 		program:interpretVector(tex, -0.5, 0.5, -0.5, 0.5)
 		likelihood(tex)
 		registers.vec4Registers:release(tex)
-		return rootFn
+		return autoptr.create(rootFn)
 	end
 
 end)
@@ -112,10 +113,11 @@ local doinference = qs.infer(p, qs.MAP,
 )
 local terra go()
 	var rootFn = doinference()
-	var program = [Program(qs.real, 4, GPU)].alloc():init(&registers, rootFn)
+	var program = [Program(qs.real, 4, GPU)].salloc():init(&registers, rootFn.ptr)
 	program:ssaPrintPretty()
 	var tex = registers.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
 	program:interpretVector(tex, -0.5, 0.5, -0.5, 0.5)
+	-- TODO: delete rootFn now that we're done with it?
 	escape
 		if not GPU then
 			emit quote [image.Image(double, 4).save(uint8)](tex, image.Format.PNG, "randomTex.png") end
