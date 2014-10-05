@@ -70,8 +70,10 @@ return function(nOutChannels, GPU)
 			var lacunarity = 1.0 + qs.gammamv(2.0, 3.0, {struc=false})
 			var persistence = qs.uniform(0.0, 1.0, {struc=false})
 			-- TODO: Should these be considered structural, or no?
-			var startOctave = qs.poisson(1, {struc=false})
-			var octaves = 1 + qs.poisson(6, {struc=false})
+			var startOctave = qs.poisson(1)
+			var octaves = 1 + qs.poisson(6)
+			-- var startOctave = qs.poisson(1, {struc=false})
+			-- var octaves = 1 + qs.poisson(6, {struc=false})
 			return [fns.Perlin(qs.real, GPU)].alloc():init(registers, gradients,
 				frequency, lacunarity, persistence, startOctave, octaves)
 		end

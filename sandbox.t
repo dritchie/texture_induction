@@ -63,7 +63,6 @@ local p = qs.program(function()
 	initglobals()
 
 	-- Spatial domain MSE
-	-- TODO: Do this computation through CUDA
 	local terra mse(im1: &HostImage, im2: &HostImage)
 		var sqerr = qs.real(0.0)
 		for y=0,im1.height do
@@ -75,20 +74,78 @@ local p = qs.program(function()
 				sqerr = sqerr + diffR*diffR + diffG*diffG + diffB*diffB
 			end
 		end
-		return hostmath.sqrt(sqerr / (im1.width*im1.height))
+		return -hostmath.sqrt(sqerr / (im1.width*im1.height))
 	end
 
-	-- Likelihood term is just spatial domain MSE, for now.
+	-- Structural similarity index (SSIM)
+	-- http://en.wikipedia.org/wiki/Structural_similarity
+	local ssim = S.memoize(function(windowsize, nwindows)
+		local dist = terralib.require("qs.distrib")
+		local randint = macro(function(lo,hi)
+			return `[int]([dist.uniform(qs.real)].sample(lo,hi))
+		end)
+		local k1 = 0.01
+		local k2 = 0.03
+		local L = 255     -- Assuming target image was originally 8 bit
+		local c1 = k1*k1*L*L
+		local c2 = k2*k2*L*L
+		local winsizesq = windowsize*windowsize
+		return terra(im1: &HostImage, im2: &HostImage)
+			var simsum = qs.real(0.0)
+			-- Randomly sample as many windows as requested
+			for i=0,nwindows do
+				var xstart = randint(0, im1.width-windowsize)
+				var ystart = randint(0, im1.height-windowsize)
+				-- Calculate SSIM indpendently for R, G, B (?)
+				escape
+					for chan=0,3 do emit quote
+						var mean1 = qs.real(0.0)
+						var mean2 = qs.real(0.0)
+						for y=ystart,ystart+windowsize do
+							for x=xstart,xstart+windowsize do
+								mean1 = mean1 + im1(x,y)(chan)
+								mean2 = mean2 + im2(x,y)(chan)
+							end
+						end
+						mean1 = mean1 / winsizesq
+						mean2 = mean2 / winsizesq
+						var vari1 = qs.real(0.0)
+						var vari2 = qs.real(0.0)
+						var covari = qs.real(0.0)
+						for y=ystart,ystart+windowsize do
+							for x=xstart,xstart+windowsize do
+								vari1 = vari1 + (im1(x,y)(chan)-mean1)*(im1(x,y)(chan)-mean1)
+								vari1 = vari2 + (im2(x,y)(chan)-mean2)*(im2(x,y)(chan)-mean2)
+								covari = covari + (im1(x,y)(chan)-mean1)*(im2(x,y)(chan)-mean2)
+							end
+						end
+						vari1 = vari1 / winsizesq
+						vari2 = vari2 / winsizesq
+						covari = covari / winsizesq
+						simsum = simsum +
+							(2.0*mean1*mean2 + c1)*(2.0*covari + c2) /
+							(mean1*mean1 + mean2*mean2 + c1)*(vari1 + vari2 + c2)
+					end end
+				end
+			end
+			return simsum / nwindows
+		end
+	end)
+
+	-- Which likelihood fn should we use?
+	-- local likelihoodfn = mse
+	local likelihoodfn = ssim(8, 1000)	-- Could do as many as 2^12 windows
+
 	-- If we're rendering on the GPU, then (for now) we have to copy
 	--    the image back to host memory to do the comparison.
 	local likelihood = macro(function(tex)
 		if not GPU then
-			return quote qs.factor(-mse(tex, &targetImg) * FACTOR_WEIGHT) end
+			return quote qs.factor(likelihoodfn(tex, &targetImg) * FACTOR_WEIGHT) end
 		else
 			return quote
 				var hosttex = hostRegisters.vec4Registers:fetch(IMG_SIZE, IMG_SIZE)
 				tex:toHostImg(hosttex)
-				qs.factor(-mse(hosttex, &targetImg) * FACTOR_WEIGHT)
+				qs.factor(likelihoodfn(hosttex, &targetImg) * FACTOR_WEIGHT)
 				hostRegisters.vec4Registers:release(hosttex)
 			end
 		end
@@ -108,8 +165,33 @@ end)
 
 
 -- Running inference / processing results
+-- local diffusionKernel = qs.DriftKernel({lexicalScaleSharing=true})
+local diffusionKernel = qs.HARMKernel()
 local doinference = qs.infer(p, qs.MAP,
-	qs.MCMC(qs.TraceMHKernel(), {numsamps=2000, verbose=true})
+	qs.MCMC(
+
+		-- Vanilla trace MH
+		qs.TraceMHKernel(), {numsamps=2000, verbose=true})
+
+		-- -- trace MH for structurals, HARM for non-structurals
+		-- qs.MixtureKernel({
+		-- 		diffusionKernel,
+		-- 		qs.LARJKernel({
+		-- 			annealKernel = diffusionKernel,
+		-- 			intervals = 20
+		-- 		})
+		-- }, {0.75, 0.25}),
+		-- {numsamps=2000, verbose=true})
+
+		-- -- LARJ + HARM
+		-- qs.MixtureKernel({
+		-- 		diffusionKernel,
+		-- 		qs.LARJKernel({
+		-- 			annealKernel = diffusionKernel,
+		-- 			intervals = 20
+		-- 		})
+		-- }, {0.75, 0.25}),
+		-- {numsamps=500, verbose=true})
 )
 local terra go()
 	var rootFn = doinference()
