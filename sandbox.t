@@ -58,7 +58,8 @@ local p = qs.program(function()
 	-- The target image
 	local targetImg = global(HostImage)
 	local terra initglobals()
-		targetImg:init(image.Format.PNG, "exampleTextures/256/016-r.png")
+		-- targetImg:init(image.Format.PNG, "exampleTextures/256/016-r.png")
+		targetImg:init(image.Format.JPEG, "exampleTextures/256/001.jpg")
 	end
 	initglobals()
 
@@ -128,13 +129,68 @@ local p = qs.program(function()
 					end end
 				end
 			end
-			return simsum / nwindows
+			return simsum / (nwindows*3)
+		end
+	end)
+
+	-- Comparison of FFT magnitude plots (sort of like power spectra)
+	local fftcomp = S.memoize(function(comparator)
+		local fft = terralib.require("utils.fft")
+		local C = terralib.includec("string.h")
+		local tmpreal = global(&double, 0)
+		local tmpimag = global(&double, 0)
+		-- Helper that computes the FFT of the RGB channels of an image in place
+		local terra imageFFT(inImg: &HostImage, outImg: &HostImage)
+			escape
+				for channel=0,3 do emit quote
+					-- Copy image to tmp reals
+					for y=0,inImg.height do
+						for x=0,inImg.width do
+							tmpreal[y*inImg.width + x] = inImg(x,y)(channel)
+						end
+					end
+					-- Write zeros to the imaginary part
+					C.memset(tmpimag, 0, IMG_SIZE*IMG_SIZE*sizeof(double))
+					-- for i=0,IMG_SIZE*IMG_SIZE do tmpimag[i] = 0.0 end
+					-- Do FFT
+					fft.FFT2D(tmpreal, tmpimag, IMG_SIZE, IMG_SIZE, 1)
+					-- Copy log magnitude back to outImg.
+					for y=0,inImg.height do
+						for x=0,inImg.width do
+							var re = tmpreal[y*inImg.width + x]
+							var im = tmpimag[y*inImg.width + x]
+							outImg(x,y)(channel) = hostmath.log(hostmath.sqrt(re*re + im*im))
+						end
+					end
+				end end
+			end
+		end
+		-- Allocate some memory for doing intermediate computations, and
+		--    also pre-compute the FFT of the target image
+		local tmpFFT = global(HostImage)
+		local targetFFT = global(HostImage)
+		local terra initglobals()
+			tmpreal = [&double](S.malloc(IMG_SIZE*IMG_SIZE*sizeof(double)))
+			tmpimag = [&double](S.malloc(IMG_SIZE*IMG_SIZE*sizeof(double)))
+			tmpFFT:init(IMG_SIZE, IMG_SIZE)
+			targetFFT:init(IMG_SIZE, IMG_SIZE)
+			imageFFT(&targetImg, &targetFFT)
+		end
+		initglobals()
+		-- Finally, return a function that computes the FFT of a newly-rendered
+		--    texture and compares it to that of the target image
+		-- (We pass in im2 to be consistent with the other likelihood functions,
+		--     but we assume that this is the target image)
+		return terra(im1: &HostImage, im2: &HostImage)
+			imageFFT(im1, &tmpFFT)
+			return comparator(&tmpFFT, &targetFFT)
 		end
 	end)
 
 	-- Which likelihood fn should we use?
 	-- local likelihoodfn = mse
-	local likelihoodfn = ssim(8, 1000)	-- Could do as many as 2^12 windows
+	-- local likelihoodfn = ssim(8, 1000)	-- Could do as many as 2^12 windows at same or less cost as mse.
+	local likelihoodfn = fftcomp(mse)
 
 	-- If we're rendering on the GPU, then (for now) we have to copy
 	--    the image back to host memory to do the comparison.
