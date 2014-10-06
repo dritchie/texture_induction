@@ -59,7 +59,8 @@ local p = qs.program(function()
 	local targetImg = global(HostImage)
 	local terra initglobals()
 		-- targetImg:init(image.Format.PNG, "exampleTextures/256/016-r.png")
-		targetImg:init(image.Format.JPEG, "exampleTextures/256/001.jpg")
+		-- targetImg:init(image.Format.JPEG, "exampleTextures/256/001.jpg")
+		targetImg:init(image.Format.GIF, "exampleTextures/square1.gif")
 	end
 	initglobals()
 
@@ -99,7 +100,7 @@ local p = qs.program(function()
 				var ystart = randint(0, im1.height-windowsize)
 				-- Calculate SSIM indpendently for R, G, B (?)
 				escape
-					for chan=0,3 do emit quote
+					for chan=0,2 do emit quote
 						var mean1 = qs.real(0.0)
 						var mean2 = qs.real(0.0)
 						for y=ystart,ystart+windowsize do
@@ -133,7 +134,7 @@ local p = qs.program(function()
 		end
 	end)
 
-	-- Comparison of FFT magnitude plots (sort of like power spectra)
+	-- Comparison of FFT magnitude plots
 	local fftcomp = S.memoize(function(comparator)
 		local fft = terralib.require("utils.fft")
 		local C = terralib.includec("string.h")
@@ -142,7 +143,8 @@ local p = qs.program(function()
 		-- Helper that computes the FFT of the RGB channels of an image in place
 		local terra imageFFT(inImg: &HostImage, outImg: &HostImage)
 			escape
-				for channel=0,3 do emit quote
+				-- Transform each channel independently
+				for channel=0,2 do emit quote
 					-- Copy image to tmp reals
 					for y=0,inImg.height do
 						for x=0,inImg.width do
@@ -151,7 +153,6 @@ local p = qs.program(function()
 					end
 					-- Write zeros to the imaginary part
 					C.memset(tmpimag, 0, IMG_SIZE*IMG_SIZE*sizeof(double))
-					-- for i=0,IMG_SIZE*IMG_SIZE do tmpimag[i] = 0.0 end
 					-- Do FFT
 					fft.FFT2D(tmpreal, tmpimag, IMG_SIZE, IMG_SIZE, 1)
 					-- Copy log magnitude back to outImg.
@@ -159,7 +160,10 @@ local p = qs.program(function()
 						for x=0,inImg.width do
 							var re = tmpreal[y*inImg.width + x]
 							var im = tmpimag[y*inImg.width + x]
-							outImg(x,y)(channel) = hostmath.log(hostmath.sqrt(re*re + im*im))
+							var mag = hostmath.sqrt(re*re + im*im)
+							var val = 100.0 * hostmath.log(mag + 1)
+							-- S.printf("%g\n", val)
+							outImg(x,y)(channel) = val
 						end
 					end
 				end end
@@ -175,6 +179,9 @@ local p = qs.program(function()
 			tmpFFT:init(IMG_SIZE, IMG_SIZE)
 			targetFFT:init(IMG_SIZE, IMG_SIZE)
 			imageFFT(&targetImg, &targetFFT)
+			-- Check what the plot looks like
+			[HostImage.save(uint8)](&targetFFT, image.Format.PNG, "fft.png")
+			S.system("convert fft.png -alpha off fft.png")
 		end
 		initglobals()
 		-- Finally, return a function that computes the FFT of a newly-rendered
