@@ -1,11 +1,11 @@
-local S = terralib.require("qs.lib.std")
-local Vec = terralib.require("utils.linalg.vec")
-local image = terralib.require("utils.image")
-local CUDAImage = terralib.require("utils.cuda.cuimage")
-local Registers = terralib.require("tex.registers")
-local inherit = terralib.require("utils.inheritance")
-local Node = terralib.require("tex.functions.node").Node
-local custd = terralib.require("utils.cuda.custd")
+local S = require("qs.lib.std")
+local Vec = require("utils.linalg.vec")
+local image = require("utils.image")
+local CUDAImage = require("utils.cuda.cuimage")
+local Registers = require("tex.registers")
+local inherit = require("utils.inheritance")
+local Node = require("tex.functions.node").Node
+local custd = require("utils.cuda.custd")
 
 
 -- This node provides the coordinates that are fed as inputs

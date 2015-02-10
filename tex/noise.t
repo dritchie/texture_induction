@@ -1,7 +1,7 @@
-local S = terralib.require("qs.lib.std")
-local Vec = terralib.require("utils.linalg.vec")
-local randTables = terralib.require("tex.randTables")
-local mathlib = terralib.require("utils.mathlib")
+local S = require("qs.lib.std")
+local Vec = require("utils.linalg.vec")
+local randTables = require("tex.randTables")
+local mathlib = require("utils.mathlib")
 
 local GradientTable = randTables.GradientTable
 

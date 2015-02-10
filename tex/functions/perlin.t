@@ -1,10 +1,10 @@
-local S = terralib.require("qs.lib.std")
-local Vec = terralib.require("utils.linalg.vec")
-local randTables = terralib.require("tex.randTables")
-local node = terralib.require("tex.functions.node")
-local noise = terralib.require("tex.noise")
-local Function = terralib.require("tex.functions.function")
-local inherit = terralib.require("utils.inheritance")
+local S = require("qs.lib.std")
+local Vec = require("utils.linalg.vec")
+local randTables = require("tex.randTables")
+local node = require("tex.functions.node")
+local noise = require("tex.noise")
+local Function = require("tex.functions.function")
+local inherit = require("utils.inheritance")
 
 local GradientTable = randTables.GradientTable
 

@@ -1,5 +1,5 @@
-local S = terralib.require("qs.lib.std")
-local ImagePool = terralib.require("tex.imagePool")
+local S = require("qs.lib.std")
+local ImagePool = require("tex.imagePool")
 
 
 -- Image 'registers' for storing vector interpreter intermediates

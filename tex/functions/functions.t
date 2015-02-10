@@ -21,7 +21,7 @@ local moduleNames =
 local nodes = {}
 
 for _,modname in ipairs(moduleNames) do
-	local mod = terralib.require(string.format("tex.functions.%s", modname))
+	local mod = require(string.format("tex.functions.%s", modname))
 	for k,v in pairs(mod) do
 		nodes[k] = v
 	end

@@ -1,4 +1,4 @@
-local S = terralib.require("qs.lib.std")
+local S = require("qs.lib.std")
 
 
 -- Really simple single inheritance

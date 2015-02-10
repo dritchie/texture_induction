@@ -1,4 +1,4 @@
-local S = terralib.require("qs.lib.std")
+local S = require("qs.lib.std")
 
 local C = terralib.includecstring [[
 #include "stdio.h"

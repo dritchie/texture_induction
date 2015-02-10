@@ -1,7 +1,7 @@
-local S = terralib.require("qs.lib.std")
-local curt = terralib.require("utils.cuda.curt")
-local image = terralib.require("utils.image")
-local Vec = terralib.require("utils.linalg.vec")
+local S = require("qs.lib.std")
+local curt = require("utils.cuda.curt")
+local image = require("utils.image")
+local Vec = require("utils.linalg.vec")
 
 
 -- Image data stored in GPU memory

@@ -1,9 +1,9 @@
-local S = terralib.require("qs.lib.std")
-local inherit = terralib.require("utils.inheritance")
-local Registers = terralib.require("tex.registers")
-local Node = terralib.require("tex.functions.node").Node
-local HashMap = terralib.require("qs.lib.hashmap")
-local util = terralib.require("utils.util")
+local S = require("qs.lib.std")
+local inherit = require("utils.inheritance")
+local Registers = require("tex.registers")
+local Node = require("tex.functions.node").Node
+local HashMap = require("qs.lib.hashmap")
+local util = require("utils.util")
 
 
 -- Some utilities for pretty printing functions

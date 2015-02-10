@@ -1,8 +1,8 @@
-local S = terralib.require("qs.lib.std")
-local node = terralib.require("tex.functions.node")
-local Vec = terralib.require("utils.linalg.vec")
-local Function = terralib.require("tex.functions.function")
-local inherit = terralib.require("utils.inheritance")
+local S = require("qs.lib.std")
+local node = require("tex.functions.node")
+local Vec = require("utils.linalg.vec")
+local Function = require("tex.functions.function")
+local inherit = require("utils.inheritance")
 
 
 local DELTA = 1.0/1024

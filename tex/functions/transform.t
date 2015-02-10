@@ -1,10 +1,10 @@
-local S = terralib.require("qs.lib.std")
-local node = terralib.require("tex.functions.node")
-local Vec = terralib.require("utils.linalg.vec")
-local Mat = terralib.require("utils.linalg.mat")
-local Function = terralib.require("tex.functions.function")
-local inherit = terralib.require("utils.inheritance")
-local util = terralib.require("utils.util")
+local S = require("qs.lib.std")
+local node = require("tex.functions.node")
+local Vec = require("utils.linalg.vec")
+local Mat = require("utils.linalg.mat")
+local Function = require("tex.functions.function")
+local inherit = require("utils.inheritance")
+local util = require("utils.util")
 
 
 local TransformNode = node.makeNodeFromFunc("TransformNode", function(real, GPU)

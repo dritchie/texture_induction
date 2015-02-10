@@ -1,13 +1,13 @@
-local S = terralib.require("qs.lib.std")
-local mathlib = terralib.require("utils.mathlib")
-local image = terralib.require("utils.image")
-local CUDAImage = terralib.require("utils.cuda.cuimage")
-local Program = terralib.require("tex.program")
-local Registers = terralib.require("tex.registers")
-local randTables = terralib.require("tex.randTables")
-local fns = terralib.require("tex.functions.functions")
-local Vec = terralib.require("utils.linalg.vec")
-local autoptr = terralib.require("utils.autopointer")
+local S = require("qs.lib.std")
+local mathlib = require("utils.mathlib")
+local image = require("utils.image")
+local CUDAImage = require("utils.cuda.cuimage")
+local Program = require("tex.program")
+local Registers = require("tex.registers")
+local randTables = require("tex.randTables")
+local fns = require("tex.functions.functions")
+local Vec = require("utils.linalg.vec")
+local autoptr = require("utils.autopointer")
 
 
 ----------------------------------------------------------------------
@@ -21,8 +21,8 @@ local GPU = true
 
 -- Generating some random textures from the simple expression tree grammar
 
-local qs = terralib.require("qs")
-local grammar = terralib.require("inference.grammar")
+local qs = require("qs")
+local grammar = require("inference.grammar")
 local colorTexGenModule = grammar(4, GPU)
 
 -- Do this or no?
@@ -82,7 +82,7 @@ local p = qs.program(function()
 	-- Structural similarity index (SSIM)
 	-- http://en.wikipedia.org/wiki/Structural_similarity
 	local ssim = S.memoize(function(windowsize, nwindows)
-		local dist = terralib.require("qs.distrib")
+		local dist = require("qs.distrib")
 		local randint = macro(function(lo,hi)
 			return `[int]([dist.uniform(qs.real)].sample(lo,hi))
 		end)
@@ -136,7 +136,7 @@ local p = qs.program(function()
 
 	-- Comparison of FFT magnitude plots
 	local fftcomp = S.memoize(function(comparator)
-		local fft = terralib.require("utils.fft")
+		local fft = require("utils.fft")
 		local C = terralib.includec("string.h")
 		local tmpreal = global(&double, 0)
 		local tmpimag = global(&double, 0)
@@ -286,7 +286,7 @@ go()
 
 -- local OUT_NCHANNELS = 1
 
--- local Mat = terralib.require("utils.linalg.mat")
+-- local Mat = require("utils.linalg.mat")
 -- local Mat3 = Mat(double, 3, 3)
 -- local RGBAColor = Vec(double, 4)
 
@@ -362,7 +362,7 @@ go()
 
 -- -- Inferring parameters of Perlin noise
 
--- local qs = terralib.require("qs")
+-- local qs = require("qs")
 
 -- local p = qs.program(function()
 
@@ -468,7 +468,7 @@ go()
 
 -- -- How long does it take to compile a (reasonably-sized) kernel?
 
--- -- local custd = terralib.require("utils.cuda.custd")
+-- -- local custd = require("utils.cuda.custd")
 -- -- local lerp = macro(function(lo, hi, t)
 -- -- 	return `(1.0-t)*lo + t*hi
 -- -- end)
@@ -572,7 +572,7 @@ go()
 -- -- So even two cdata objects corresponding to the same pointer don't
 -- --    match as table keys. Bummer.
 
--- local HashMap = terralib.require("qs.lib.hashmap")
+-- local HashMap = require("qs.lib.hashmap")
 -- local hmap = terralib.new(HashMap(&opaque, bool))
 -- hmap:__init()
 -- hmap:put(f1, true)

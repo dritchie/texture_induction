@@ -1,7 +1,7 @@
-local S = terralib.require("qs.lib.std")
-local Vec = terralib.require("utils.linalg.vec")
-local distrib = terralib.require("qs.distrib")
-local curt = terralib.require("utils.cuda.curt")
+local S = require("qs.lib.std")
+local Vec = require("utils.linalg.vec")
+local distrib = require("qs.distrib")
+local curt = require("utils.cuda.curt")
 
 
 -- Should be a power of 2
